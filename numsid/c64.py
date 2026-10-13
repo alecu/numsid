@@ -7,6 +7,7 @@ convention: init(A = song - 1) once, then play() every frame.
 
 from __future__ import annotations
 
+from .cia import CIA
 from .cpu6502 import CPU6502, CPUHalt
 from .psid import PSIDFile, PAL_CYCLES_PER_FRAME, NTSC_CYCLES_PER_FRAME
 
@@ -27,7 +28,10 @@ class C64:
             raise ValueError(f"song {self.song} out of range 1..{tune.songs}")
         self.ram = bytearray(0x10000)
         self.cpu = CPU6502(self.ram, self.io_read, self.io_write)
-        self.cia_timer = 0x4025 if tune.is_pal else 0x4295   # KERNAL default, ~60 Hz
+        self.cia1 = CIA()
+        self.cia1.kernal_defaults(0x4025 if tune.is_pal else 0x4295)   # ~60 Hz system IRQ
+        self.cia2 = CIA()
+        self.cia_timed = tune.uses_cia(self.song)
         self.frame_cycles = PAL_CYCLES_PER_FRAME if tune.is_pal else NTSC_CYCLES_PER_FRAME
         self.play_address = tune.play_address
         self.next_play = 0
@@ -55,21 +59,26 @@ class C64:
             return line & 0xFF
         if addr == 0xD011:
             return 0x1B | (0x80 if line > 0xFF else 0)
-        if addr == 0xDC04:
-            return self.cia_timer & 0xFF
-        if addr == 0xDC05:
-            return self.cia_timer >> 8
+        if 0xDC00 <= addr <= 0xDCFF:
+            return self.cia1.read(addr, self.cpu.clock)
+        if 0xDD00 <= addr <= 0xDDFF:
+            return self.cia2.read(addr, self.cpu.clock)
         return self.ram[addr]
 
     def io_write(self, addr: int, value: int) -> None:
         if self._io_visible():
             if 0xD400 <= addr <= 0xD7FF:
                 self.sid.write(addr & 0x1F, value, self.cpu.clock)
-            elif addr == 0xDC04:
-                self.cia_timer = (self.cia_timer & 0xFF00) | value
-            elif addr == 0xDC05:
-                self.cia_timer = (self.cia_timer & 0x00FF) | (value << 8)
+            elif 0xDC00 <= addr <= 0xDCFF:
+                self.cia1.write(addr, value, self.cpu.clock)
+            elif 0xDD00 <= addr <= 0xDDFF:
+                self.cia2.write(addr, value, self.cpu.clock)
         self.ram[addr] = value
+
+    @property
+    def cia_timer(self) -> int:
+        """CIA 1 timer A latch (sets the play rate of CIA-timed songs)."""
+        return self.cia1.ta.latch
 
     # ---- PSID driver ------------------------------------------------------
     def _load(self) -> None:
@@ -82,6 +91,10 @@ class C64:
                 ram[stub:stub + len(_KERNAL_IRQ_EXIT)] = _KERNAL_IRQ_EXIT
         ram[0x02A6] = 1 if tune.is_pal else 0     # KERNAL's PAL/NTSC flag
         self.cpu.set_p(0x24)
+        if not tune.is_rsid:
+            # PSID players have always started tunes with the volume up, and
+            # many rips rely on it (they never write $D418 themselves).
+            self.sid.write(0x18, 0x0F, 0)
 
     def init(self) -> None:
         """Run the init routine for the selected song, starting at the current clock."""
@@ -94,23 +107,41 @@ class C64:
                 self.play_address = ram[0x0314] | (ram[0x0315] << 8)
             else:
                 self.play_address = ram[0xFFFE] | (ram[0xFFFF] << 8)
-        if self.tune.uses_cia(self.song):
-            self.frame_cycles = max(self.cia_timer, 256) + 1
-        frames = (self.cpu.clock - start) // self.frame_cycles + 1
-        self.next_play = start + frames * self.frame_cycles
+        if self.cia_timed:
+            # play runs on CIA 1 timer A underflows, as the timer is left by init
+            self.frame_cycles = self.cia_timer + 1          # nominal period
+            self.cia1.sync(self.cpu.clock)
+            self.next_play = self._next_underflow()
+        else:
+            frames = (self.cpu.clock - start) // self.frame_cycles + 1
+            self.next_play = start + frames * self.frame_cycles
+
+    def _next_underflow(self) -> int:
+        ta = self.cia1.ta
+        if ta.running:
+            return ta.next_underflow
+        return self.cpu.clock + ta.remaining       # stopped: as if restarted now
 
     def play_frame(self) -> int:
-        """Call play once; returns the clock at which the next frame starts."""
+        """Call play once; returns the clock at which the next call is due."""
         cpu = self.cpu
-        if cpu.clock < self.next_play:
-            cpu.clock = self.next_play
+        due = self.next_play
+        if cpu.clock < due:
+            cpu.clock = due
+        if self.cia_timed:
+            # the underflow that triggers this call reloads the timer from
+            # the latch as it is now; writes made by play apply to later periods
+            self.cia1.sync(due)
         if not self.halted:
             if self.tune.play_address:
                 mode = "jsr"
             else:
                 mode = "kernal_irq" if self.ram[1] & 2 else "irq"
             self._call(self.play_address, PLAY_CYCLE_LIMIT, "play", mode)
-        self.next_play += self.frame_cycles
+        if self.cia_timed:
+            self.next_play = self._next_underflow()
+        else:
+            self.next_play += self.frame_cycles
         return self.next_play
 
     def _call(self, addr: int, limit: int, what: str, mode: str, a: int | None = None) -> None:

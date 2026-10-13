@@ -134,12 +134,16 @@ def song_length(tune: psid.PSIDFile, song: int, max_seconds: float = 600.0,
     log = _NoteLog()
     machine = C64(tune, log, song)
     machine.init()
-    fps = tune.clock / machine.frame_cycles
-    frames = []
-    for _ in range(int(max_seconds * fps)):
+    frames, times = [], []           # note events per play call, and its cycle
+    start = machine.next_play
+    end = start + int(max_seconds * tune.clock)
+    while machine.next_play < end:
+        times.append(machine.next_play)
         log.events = []
         machine.play_frame()
         frames.append(tuple(log.events))
+    fps = len(frames) / max_seconds   # play calls per second (CIA tunes vary)
+    seconds = lambda i: (times[min(i, len(times) - 1)] - start) / tune.clock
     n = len(frames)
     window = min(int(window_seconds * fps), n // 3)
     notes = [i for i, f in enumerate(frames) if f]
@@ -147,7 +151,7 @@ def song_length(tune: psid.PSIDFile, song: int, max_seconds: float = 600.0,
         return None
     first, last = notes[0], notes[-1]
     if n - last > 30 * fps:                       # long silence at the end: it stopped
-        return (last / fps + tail, "end")
+        return (seconds(last) + tail, "end")
     best = None
     for offset in (0, 10, 30):
         ref_at = first + int(offset * fps)
@@ -165,4 +169,4 @@ def song_length(tune: psid.PSIDFile, song: int, max_seconds: float = 600.0,
     period, at = best
     while at > 0 and frames[at - 1] == frames[at - 1 + period]:
         at -= 1
-    return ((at + period) / fps, "loop")
+    return (seconds(at + period), "loop")

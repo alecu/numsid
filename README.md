@@ -145,9 +145,8 @@ subtunes.
 ## Limitations
 
 [ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
-with a compatibility table for the HVSC Top 100. Of those 100 tunes, 79 play,
-and 32 of the 79 have a known defect, mostly a click at the start that
-already has a one-line fix.
+with a compatibility table for the HVSC Top 100. Of those 100 tunes, 86 play
+correctly; the 14 that don't are RSID files.
 
 * **PSID only.** RSID tunes that rely on real CIA/VIC interrupts, NMIs or
   KERNAL/BASIC ROM code won't play correctly. IRQ-style PSIDs (play address

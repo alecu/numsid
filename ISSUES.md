@@ -12,15 +12,31 @@ how many popular tunes they unlock.
 
 ## Suggested order
 
-| Fix | Effort | Unlocks |
-|-----|--------|---------|
-| B2: preset volume 15 for PSIDs | one line | 2 silent tunes, and the start click on 34 more |
-| B1: follow CIA timer writes during play | small, in `C64.play_frame` | 6 tunes with wrong tempo, including #1 Wizball |
-| F2 + F1: RSID environment | large: CIA/VIC interrupts, continuous CPU | 14 RSID tunes |
+| Fix | Effort | Unlocks | Status |
+|-----|--------|---------|--------|
+| B2: preset volume 15 for PSIDs | one line | 2 silent tunes, and the start click on 34 more | fixed |
+| B1: follow CIA timer writes during play | small, in `C64.play_frame` | 6 tunes with wrong tempo, including #1 Wizball | fixed |
+| F2 + F1: RSID environment | large: CIA/VIC interrupts, continuous CPU | 14 RSID tunes | open |
 
-## Bugs
+## Fixed bugs
 
-### B1. CIA timer changes made by the play routine are ignored
+How the fixes were verified:
+* Every Top 100 tune was rendered (10 s) before and after the fixes. 40 are
+  bit-identical. 49 differ only in their first second, where the start-up
+  thumps were removed. 11 changed: the 8 fixed tunes, Zig Zag and Short
+  Circuit (CIA-timed, see below), and RSID #67, which is still broken.
+* For the CIA-timed tunes, the song length numsid detects (where the notes
+  start repeating, or the last note) now matches the HVSC Songlengths
+  database: Wizball 214.9 s vs 214, SYS4096 168.6 vs 168, Ocean Loader 3
+  169.6 vs 167, Defender of the Crown 59.8 vs 58, Zig Zag 237.1 vs 235,
+  Short Circuit 239.5 vs 241. The "end" readings include 2.5 s for the last
+  note's release.
+* Across all PSIDs, 55 of the 68 tunes with a detectable length match
+  HVSC within 3%. The other 13 are 3-10% off. Those are mostly VBI-timed,
+  so their rate can't drift; the difference comes from how a loop point or
+  an ending is defined.
+
+### B1. CIA timer changes made by the play routine are ignored (fixed)
 
 * **Affects:** #1 Wizball, #42 Defender of the Crown, #43 Ocean Loader 3,
   #55 Times of Lore, #63 The Baby of Can Guru, #84 SYS4096.
@@ -48,13 +64,14 @@ how many popular tunes they unlock.
     routine stops the timer on entry (`$DC0E=$00`) and restarts it on
     exit (`$81`). Each period therefore stretches by the play routine's
     run time (about 20% on average), which numsid doesn't model.
-* **Fix:**
-  * Re-read the latch after every play call. Like a real CIA in continuous
-    mode, a value written during an interrupt takes effect after the period
-    already running, unless force-load (`$DC0E` bit 4) is set.
-  * Honour timer stop/start: while stopped, the countdown pauses.
+* **Fix:** a model of the 6526 timers (`numsid/cia.py`) now schedules
+  CIA-timed play calls from timer A's actual next underflow. Writes made by
+  play behave as on the chip:
+  * a new latch takes effect at the next reload,
+  * force load (`$DC0E` bit 4) applies immediately,
+  * stopping the timer pauses the countdown.
 
-### B2. SID volume starts at 0; PSID rips expect 15
+### B2. SID volume starts at 0; PSID rips expect 15 (fixed)
 
 * **Affects:** #11 Rambo: First Blood Part II, #36 Parallax (both Martin
   Galway).
@@ -81,10 +98,13 @@ how many popular tunes they unlock.
   When play then sets volume 15, the DC level jumps and comes out as a
   thump of about half full scale; Mutants and Hysteria peak at 0.48 in the
   first 50 ms.
-* **Fix:** for PSID files, write `$0F` to `$D418` before calling init and
-  settle at that level. Checked by rendering: this fixes Rambo, Parallax
-  and the start clicks of Mutants and Hysteria. RSID files keep the
-  real-hardware state.
+* **Fix:**
+  * PSIDs start with `$D418=$0F`; RSIDs keep the real-hardware state.
+  * For the first second after init, the DC step caused by each volume
+    change is absorbed into a constant offset. That covers tunes like #27
+    Cobra, which write 0 in their first play call and fade in.
+  * The offset stops tracking after 16 changes, so `$D418` sample playback
+    keeps its full effect.
 
 ## Pending features
 
@@ -139,24 +159,24 @@ how many popular tunes they unlock.
 
 ## Compatibility table
 
-**Summary:** 47 work, 32 work with a defect (mostly the B2 start click, which goes away with B2's fix), 21 are broken: 14 RSID files (F1, F2), 5 with wrong tempo (B1) and 2 silent (B2).
+**Summary:** 86 work and 14 are broken. The broken ones are all RSID files (F1, F2). Results reflect the fixes for B1 and B2.
 
 | # | Tune | Composer | Result | Notes |
 |--:|------|----------|--------|-------|
-| 1 | Wizball | Martin Galway | ❌ broken | wrong tempo (B1) |
-| 2 | The Last Ninja | Ben Daglish & Anthony Lees | ⚠️ works, with defects | quiet intro by design; uses the pulse+triangle combined waveform a lot (approximate model); click at start (B2); heard 30 s |
-| 3 | Sanxion | Rob Hubbard | ⚠️ works, with defects | click at start (B2); heard 30 s |
-| 4 | Commando | Rob Hubbard | ✅ works | heard 30 s |
-| 5 | International Karate | Rob Hubbard | ✅ works | heard 30 s |
-| 6 | Cybernoid II | Jeroen Tel / Maniacs of Noise | ✅ works | heard 30 s |
-| 7 | Delta | Rob Hubbard | ⚠️ works, with defects | click at start (B2); heard 30 s |
-| 8 | Monty on the Run | Rob Hubbard | ⚠️ works, with defects | click at start (B2); heard 30 s |
-| 9 | Cybernoid | Jeroen Tel / Maniacs of Noise | ✅ works | heard 30 s |
-| 10 | Last Ninja 3 | Reyn Ouwehand | ⚠️ works, with defects | click at start (B2); heard 30 s |
-| 11 | Rambo: First Blood Part II | Martin Galway | ❌ broken | silent (B2) |
-| 12 | Last Ninja 2 | Matt Gray | ⚠️ works, with defects | click at start (B2); heard 30 s |
-| 13 | Mutants | Fred Gray | ⚠️ works, with defects | quieter than most tunes (mostly triangle); verify by ear; click at start (B2); heard 30 s |
-| 14 | Knucklebusters | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
+| 1 | Wizball | Martin Galway | ✅ works | fixed by B1 (4 calls per frame); length matches HVSC |
+| 2 | The Last Ninja | Ben Daglish & Anthony Lees | ✅ works | quiet intro by design; uses the pulse+triangle combined waveform a lot (approximate model); heard 30 s in the survey |
+| 3 | Sanxion | Rob Hubbard | ✅ works | heard 30 s in the survey |
+| 4 | Commando | Rob Hubbard | ✅ works | heard 30 s in the survey |
+| 5 | International Karate | Rob Hubbard | ✅ works | heard 30 s in the survey |
+| 6 | Cybernoid II | Jeroen Tel / Maniacs of Noise | ✅ works | heard 30 s in the survey |
+| 7 | Delta | Rob Hubbard | ✅ works | heard 30 s in the survey |
+| 8 | Monty on the Run | Rob Hubbard | ✅ works | heard 30 s in the survey |
+| 9 | Cybernoid | Jeroen Tel / Maniacs of Noise | ✅ works | heard 30 s in the survey |
+| 10 | Last Ninja 3 | Reyn Ouwehand | ✅ works | heard 30 s in the survey |
+| 11 | Rambo: First Blood Part II | Martin Galway | ✅ works | fixed by B2 (was silent) |
+| 12 | Last Ninja 2 | Matt Gray | ✅ works | heard 30 s in the survey |
+| 13 | Mutants | Fred Gray | ✅ works | quieter than most tunes (mostly triangle); verify by ear; heard 30 s in the survey |
+| 14 | Knucklebusters | Rob Hubbard | ✅ works |  |
 | 15 | Arkanoid | Martin Galway | ❌ broken | RSID (F1) |
 | 16 | Crazy Comets | Rob Hubbard | ✅ works |  |
 | 17 | Auf Wiedersehen Monty | Rob Hubbard & Ben Daglish | ✅ works |  |
@@ -168,77 +188,77 @@ how many popular tunes they unlock.
 | 23 | The Way of the Exploding Fist | Neil Brennan | ❌ broken | RSID, init never returns (F1) |
 | 24 | Platoon | Jonathan Dunn | ✅ works |  |
 | 25 | R-type | Chris Hülsbeck & Ramiro Vaca | ✅ works |  |
-| 26 | Lightforce | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
+| 26 | Lightforce | Rob Hubbard | ✅ works |  |
 | 27 | Cobra | Ben Daglish | ✅ works | fades in from volume 0 by design |
-| 28 | Robocop 3 | Jeroen Tel / Maniacs of Noise | ⚠️ works, with defects | click at start (B2) |
-| 29 | Myth | Jeroen Tel / Maniacs of Noise | ⚠️ works, with defects | click at start (B2) |
-| 30 | The Master of Magic | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
+| 28 | Robocop 3 | Jeroen Tel / Maniacs of Noise | ✅ works |  |
+| 29 | Myth | Jeroen Tel / Maniacs of Noise | ✅ works |  |
+| 30 | The Master of Magic | Rob Hubbard | ✅ works |  |
 | 31 | Turbo Outrun | Jeroen Tel / Maniacs of Noise | ❌ broken | RSID, raster IRQ + NMI (F1) |
-| 32 | Trap | Ben Daglish | ⚠️ works, with defects | click at start (B2) |
-| 33 | Sweet | Johannes Bjerregaard | ⚠️ works, with defects | click at start (B2) |
+| 32 | Trap | Ben Daglish | ✅ works |  |
+| 33 | Sweet | Johannes Bjerregaard | ✅ works |  |
 | 34 | Stormlord | Johannes Bjerregaard & J. Tel | ❌ broken | RSID, raster IRQ + NMI (F1) |
 | 35 | Spellbound | Rob Hubbard | ✅ works |  |
-| 36 | Parallax | Martin Galway | ❌ broken | silent (B2) |
+| 36 | Parallax | Martin Galway | ✅ works | fixed by B2 (was silent) |
 | 37 | IK+ | Rob Hubbard | ✅ works | uses combined waveforms a lot (approximate model) |
 | 38 | Zamzara | Charles Deenen/Maniacs of Noise | ✅ works |  |
 | 39 | Comic Bakery | Martin Galway | ✅ works |  |
 | 40 | Yie Ar Kung Fu | Martin Galway | ✅ works |  |
-| 41 | Hysteria | Fred Gray | ⚠️ works, with defects | quieter than most tunes; verify by ear; click at start (B2) |
-| 42 | Defender of the Crown | Richard Joseph | ❌ broken | tempo too fast: timer stop/start ignored (B1) |
-| 43 | Ocean Loader 3 | Peter Clarke | ❌ broken | tempo ~34% too fast (B1) |
+| 41 | Hysteria | Fred Gray | ✅ works | quieter than most tunes; verify by ear |
+| 42 | Defender of the Crown | Richard Joseph | ✅ works | fixed by B1 (timer stop/start); length matches HVSC |
+| 43 | Ocean Loader 3 | Peter Clarke | ✅ works | fixed by B1 (44.7 Hz); length matches HVSC |
 | 44 | To Be on Top | Chris Hülsbeck | ❌ broken | RSID; crashes in missing KERNAL code (F1, F2) |
 | 45 | Armalyte | Martin Walker | ✅ works |  |
-| 46 | Mega Apocalypse | Rob Hubbard & Simon Nicol | ⚠️ works, with defects | click at start (B2) |
+| 46 | Mega Apocalypse | Rob Hubbard & Simon Nicol | ✅ works |  |
 | 47 | Dulcedo Cogitationis | Chris Hülsbeck | ❌ broken | RSID, silent (F1) |
-| 48 | Thing Bounces Back | Ben Daglish | ⚠️ works, with defects | uses combined waveforms (approximate model); click at start (B2) |
+| 48 | Thing Bounces Back | Ben Daglish | ✅ works | uses combined waveforms (approximate model) |
 | 49 | Robocop | Jonathan Dunn | ❌ broken | RSID; crashes in missing KERNAL code (F1, F2) |
 | 50 | Cooperation Demo | Kim Christensen (Future Freak) | ✅ works |  |
 | 51 | Zoids | Rob Hubbard | ✅ works |  |
 | 52 | Supremacy | Jeroen Tel / Maniacs of Noise | ✅ works |  |
-| 53 | Compleeto! | Anders Andréen (ATOO) | ⚠️ works, with defects | click at start (B2) |
-| 54 | Driller | Matt Gray | ⚠️ works, with defects | click at start (B2) |
-| 55 | Times of Lore | Martin Galway | ❌ broken | plays at 0.6× tempo (B1) |
+| 53 | Compleeto! | Anders Andréen (ATOO) | ✅ works |  |
+| 54 | Driller | Matt Gray | ✅ works |  |
+| 55 | Times of Lore | Martin Galway | ✅ works | fixed by B1 (2 calls per frame) |
 | 56 | One Man & His Droid | Rob Hubbard | ✅ works |  |
 | 57 | Savage | Jeroen Tel / Maniacs of Noise | ❌ broken | RSID, silent (F1) |
-| 58 | ACE II | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
-| 59 | Thrust | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
+| 58 | ACE II | Rob Hubbard | ✅ works |  |
+| 59 | Thrust | Rob Hubbard | ✅ works |  |
 | 60 | BMX Kidz | Rob Hubbard & Jori Olkkonen | ❌ broken | RSID, nearly silent (F1) |
 | 61 | Kinetix | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 62 | Scroll Machine | Jori Olkkonen (Yip) | ✅ works |  |
-| 63 | The Baby of Can Guru | Chris Hülsbeck | ⚠️ works, with defects | ~1.3% too fast (B1); click at start (B2) |
+| 63 | The Baby of Can Guru | Chris Hülsbeck | ✅ works | fixed by B1 (59.2 Hz) |
 | 64 | Wizardry | Mike Alsop | ✅ works |  |
 | 65 | Gauntlet III | Tim & Geoff Follin | ✅ works |  |
-| 66 | Synth Sample | Georg Feil | ⚠️ works, with defects | PSID with its own IRQ handler; NTSC; `$D418` written 3×/frame; click at start (B2) |
-| 67 | Grand Prix Circuit | Kris Hatlelid | ❌ broken | RSID, wrong timing (F1) |
+| 66 | Synth Sample | Georg Feil | ✅ works | PSID with its own IRQ handler; NTSC; `$D418` written 3×/frame |
+| 67 | Grand Prix Circuit | Kris Hatlelid | ❌ broken | RSID (F1) |
 | 68 | Nightdawn | Johannes Bjerregaard | ❌ broken | RSID, silent (F1) |
 | 69 | Scumball | Tim Follin | ✅ works |  |
-| 70 | R.I.S.K. | Wally Beben | ⚠️ works, with defects | click at start (B2) |
+| 70 | R.I.S.K. | Wally Beben | ✅ works |  |
 | 71 | Rocky Star | Kim Christensen (Future Freak) | ❌ broken | RSID, init never returns (F1) |
 | 72 | Snare | Martin Walker | ✅ works |  |
 | 73 | Bionic Commando | Tim Follin | ✅ works |  |
 | 74 | Katakis | Chris Hülsbeck | ✅ works |  |
 | 75 | Gerry the Germ | Rob Hubbard | ✅ works |  |
 | 76 | Eliminator | Jeroen Tel / Maniacs of Noise | ✅ works |  |
-| 77 | Bulldog | Ben Daglish | ⚠️ works, with defects | click at start (B2) |
+| 77 | Bulldog | Ben Daglish | ✅ works |  |
 | 78 | Ramparts | Mark Cooksey | ✅ works |  |
-| 79 | Ark Pandora | Ben Daglish | ⚠️ works, with defects | click at start (B2) |
+| 79 | Ark Pandora | Ben Daglish | ✅ works |  |
 | 80 | Miami Vice | Martin Galway | ✅ works |  |
-| 81 | Warhawk | Rob Hubbard | ⚠️ works, with defects | click at start (B2) |
-| 82 | The Vikings | Ben Daglish | ⚠️ works, with defects | click at start (B2) |
+| 81 | Warhawk | Rob Hubbard | ✅ works |  |
+| 82 | The Vikings | Ben Daglish | ✅ works |  |
 | 83 | FAME (1) | Michael Hendriks | ✅ works |  |
-| 84 | SYS4096 | Juha-Matti Hilpinen (AMJ) | ❌ broken | plays at 0.6× tempo (B1) |
+| 84 | SYS4096 | Juha-Matti Hilpinen (AMJ) | ✅ works | fixed by B1 (2 calls per frame); length matches HVSC |
 | 85 | Batman (long) | Jens-Christian Huus | ✅ works |  |
 | 86 | Mikie | Martin Galway | ✅ works |  |
-| 87 | Zig Zag | Antony Crowther | ✅ works | 200 Hz CIA player; one long call per pattern is harmless |
-| 88 | Battle Valley | Jeroen Tel / Maniacs of Noise | ⚠️ works, with defects | click at start (B2) |
+| 87 | Zig Zag | Antony Crowther | ✅ works | 200 Hz CIA player; length matches HVSC |
+| 88 | Battle Valley | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 89 | Chordian | Jens-Christian Huus | ✅ works |  |
 | 90 | Combat Crazy | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 91 | Hawkeye | Jeroen Tel / Maniacs of Noise | ✅ works |  |
-| 92 | Short Circuit | Martin Galway | ✅ works |  |
-| 93 | DNA Warrior | Thomas Petersen & K.Christensen | ⚠️ works, with defects | click at start (B2) |
-| 94 | Glider Rider | David Whittaker | ⚠️ works, with defects | click at start (B2) |
+| 92 | Short Circuit | Martin Galway | ✅ works | CIA-timed; length matches HVSC |
+| 93 | DNA Warrior | Thomas Petersen & K.Christensen | ✅ works |  |
+| 94 | Glider Rider | David Whittaker | ✅ works |  |
 | 95 | Uridium | Steve Turner | ✅ works |  |
-| 96 | Thunderforce | Johannes Bjerregaard | ⚠️ works, with defects | click at start (B2) |
+| 96 | Thunderforce | Johannes Bjerregaard | ✅ works |  |
 | 97 | Kentilla | Rob Hubbard | ✅ works |  |
 | 98 | Crazy Comets (remix) | Johannes Bjerregaard | ✅ works |  |
 | 99 | Terra Cresta | Martin Galway | ✅ works |  |

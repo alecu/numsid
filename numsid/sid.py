@@ -320,6 +320,13 @@ class SID:
         self.param_changes: deque = deque()   # (output sample index, params)
         self.ic1 = self.ic2 = 0.0             # filter integrator states
         self.hp_state = 0.0
+        # Start-up DC compensation (see settle): offset subtracted from the
+        # direct path, the level it is measured against, and until when it
+        # keeps tracking volume/routing changes.
+        self.dc_comp = 0.0
+        self.dc_vol = 0
+        self.dc_changes = 0
+        self.dc_track_until = 0
         self.out: deque = deque()
         self.out_len = 0
 
@@ -338,11 +345,18 @@ class SID:
             return 0xFF
         return 0                              # write-only registers
 
-    def settle(self) -> None:
+    def settle(self, track_seconds: float = 1.0) -> None:
         """Pre-charge all filters to the chip's current DC level and drop any
         rendered output.  Called after a tune's init routine: setting the
         volume on a 6581 shifts its large DC offset, which would otherwise
-        cause a loud thump on the C64's output capacitor at song start."""
+        cause a loud thump on the C64's output capacitor at song start.
+
+        Many tunes only set the volume in their first play calls (Cobra even
+        writes 0 there and fades in), so for `track_seconds` afterwards the
+        DC step caused by each volume change is absorbed into a constant
+        offset.  After that (or as soon as rapid volume writes reveal sample
+        playback) the offset is frozen and volume changes act naturally,
+        which `$D418` sample playback relies on."""
         self.advance(self.t)
         routed = self.filt if self.filter_enabled else 0
         n_filt = bin(routed & 7).count("1")
@@ -351,6 +365,10 @@ class SID:
         filt_dc = n_filt * self.voice_dc
         self.resampler.fill(0, direct_dc)
         self.resampler.fill(1, filt_dc)
+        self.dc_comp = 0.0
+        self.dc_vol = self.vol
+        self.dc_changes = 0
+        self.dc_track_until = self.t + int(track_seconds * self.clock)
         while self.param_changes:
             self.params = self.param_changes.popleft()[1]
         self.ic1, self.ic2 = 0.0, float(filt_dc)      # SVF at rest: low-pass = input
@@ -594,10 +612,19 @@ class SID:
                 dc_direct += self.voice_dc
                 if out is not None:
                     sum_direct = out[s:e] if sum_direct is None else sum_direct + out[s:e]
+        if self.vol != self.dc_vol and self.t + s < self.dc_track_until:
+            # silent output level per volume step: the direct path's DC, plus
+            # the routed voices' DC that the (inverting) low-pass passes
+            lp = self.mode & 1 if routed else 0
+            self.dc_comp += (dc_direct - lp * dc_filter) * (self.vol - self.dc_vol)
+            self.dc_vol = self.vol
+            self.dc_changes += 1
+            if self.dc_changes > 16:          # rapid writes: sample playback, keep it
+                self.dc_track_until = 0
         if sum_direct is None:
-            direct[s:e] = dc_direct * self.vol
+            direct[s:e] = dc_direct * self.vol - self.dc_comp
         else:
-            direct[s:e] = (sum_direct + dc_direct) * self.vol
+            direct[s:e] = (sum_direct + dc_direct) * self.vol - self.dc_comp
         if routed:
             filt_in[s:e] = dc_filter if sum_filter is None else sum_filter + dc_filter
 
