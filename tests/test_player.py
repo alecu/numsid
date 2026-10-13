@@ -51,3 +51,16 @@ def test_8580_and_rates(tmp_path):
         assert len(x) == rate and np.sqrt(np.mean(x ** 2)) > 0.01
     write_wav(tmp_path / "x.wav", x, 48000)
     assert (tmp_path / "x.wav").stat().st_size == 44 + 2 * 48000
+
+
+def test_song_length():
+    from pysid.player import song_length
+    tune = psid.load(TUNE)
+    length, kind = song_length(tune, 2, max_seconds=200)
+    assert kind == "loop" and length == pytest.approx(61.3, abs=0.1)
+    # the main theme: its first frame differs from the loop's, so the
+    # repetition must be found from a later offset and walked back
+    length, kind = song_length(tune, 1, max_seconds=330)
+    assert kind == "loop" and length == pytest.approx(235.6, abs=0.1)
+    length, kind = song_length(tune, 3, max_seconds=60)       # a jingle that stops
+    assert kind == "end" and length == pytest.approx(240 / 50.125 + 2.5, abs=0.05)

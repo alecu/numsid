@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 *.wav
 *.egg-info/
+*.mp4
+*.sid

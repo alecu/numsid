@@ -25,6 +25,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-g", "--gain", type=float, default=1.0, help="output gain (default 1.0)")
     ap.add_argument("--no-filter", action="store_true", help="bypass the SID filter")
     ap.add_argument("--wav", metavar="FILE", help="render to a WAV file instead of playing")
+    ap.add_argument("--video", metavar="FILE",
+                    help="render the visualiser + audio to an MP4 (needs ffmpeg); length "
+                         "defaults to one full loop of the song plus a fade-out")
+    ap.add_argument("--fps", type=int, default=60, help="video frame rate (default 60)")
+    ap.add_argument("--size", default="1920x1080", help="video size (default 1920x1080)")
+    ap.add_argument("--fade", type=float, default=6.0, help="video fade-out seconds (default 6)")
+    ap.add_argument("--screenshot", metavar="FILE", help="save a PNG of the visualiser")
+    ap.add_argument("--at", type=float, default=30.0,
+                    help="playback time for --screenshot, in seconds (default 30)")
+    ap.add_argument("--mute", default="", help="voices to mute, e.g. 1,3")
     ap.add_argument("-t", "--seconds", type=float,
                     help="length to render/play (default: 180 s for --wav, endless otherwise)")
     ap.add_argument("--headless", action="store_true", help="play without a window")
@@ -50,14 +60,38 @@ def main(argv: list[str] | None = None) -> int:
         print(f"pysid: song must be 1..{tune.songs}", file=sys.stderr)
         return 1
 
-    live = not args.wav
+    visual = args.video or args.screenshot or not (args.wav or args.headless)
     player = Player(tune, song, sample_rate=args.rate, model=args.model,
                     filter_enabled=not args.no_filter, gain=args.gain,
-                    scope_rate=44100 if live and not args.headless else 0)
+                    scope_rate=44100 if visual else 0)
+    for v in filter(None, args.mute.split(",")):
+        player.sid.mute[int(v) - 1] = True
     for w in player.warnings:
         print(f"warning: {w}")
 
-    if args.wav:
+    if args.screenshot:
+        from .record import screenshot
+        screenshot(player, args.screenshot, args.at)
+        print(f"wrote {args.screenshot}")
+    elif args.video:
+        from .player import song_length
+        from .record import record_video
+        seconds = args.seconds
+        if not seconds:
+            found = song_length(tune, song)
+            if found is None:
+                seconds = 180.0 + args.fade
+                print("song length: no loop or end found; ", end="")
+            elif found[1] == "loop":
+                seconds = found[0] + args.fade
+                print(f"song loops after {found[0]:.1f} s; ", end="")
+            else:
+                seconds = found[0]
+                print(f"song ends after {found[0]:.1f} s; ", end="")
+            print(f"recording {seconds:.1f} s")
+        w, h = (int(x) for x in args.size.lower().split("x"))
+        record_video(player, args.video, seconds, fps=args.fps, size=(w, h), fade_out=args.fade)
+    elif args.wav:
         seconds = args.seconds or 180.0
         total = int(seconds * args.rate)
         chunks, done = [], 0

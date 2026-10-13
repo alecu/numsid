@@ -99,3 +99,70 @@ def write_wav(path: str | Path, samples: np.ndarray, sample_rate: int) -> None:
         w.setsampwidth(2)
         w.setframerate(sample_rate)
         w.writeframes(pcm.tobytes())
+
+
+class _NoteLog:
+    """SID stand-in that only records gate-on events (voice, pitch, waveform)."""
+
+    def __init__(self):
+        self.regs = bytearray(32)
+        self.events: list = []
+
+    def write(self, reg, value, cycle):
+        if reg in (4, 11, 18) and value & 1 and not self.regs[reg] & 1:
+            v = reg // 7
+            self.events.append((v, self.regs[7 * v] | self.regs[7 * v + 1] << 8, value & 0xF0))
+        self.regs[reg] = value
+
+    def read(self, reg, cycle):
+        return 0
+
+
+def song_length(tune: psid.PSIDFile, song: int, max_seconds: float = 600.0,
+                min_seconds: float = 5.0, window_seconds: float = 60.0,
+                tail: float = 2.5) -> tuple[float, str] | None:
+    """How long a song lasts: (seconds, "loop") for a song that repeats --
+    intro plus one pass of the loop -- or (seconds, "end") for one that stops
+    playing notes (last note plus `tail` for its release).  None if neither
+    is found within `max_seconds`.
+
+    Runs only the CPU (no audio) and compares per-frame note-on events.  A
+    reference stretch of `window_seconds` is taken at a few offsets (so a
+    non-repeating intro doesn't hide the loop); the shortest period at which
+    it recurs is the loop length, and walking backwards finds where the
+    repetition begins."""
+    log = _NoteLog()
+    machine = C64(tune, log, song)
+    machine.init()
+    fps = tune.clock / machine.frame_cycles
+    frames = []
+    for _ in range(int(max_seconds * fps)):
+        log.events = []
+        machine.play_frame()
+        frames.append(tuple(log.events))
+    n = len(frames)
+    window = min(int(window_seconds * fps), n // 3)
+    notes = [i for i, f in enumerate(frames) if f]
+    if not notes:
+        return None
+    first, last = notes[0], notes[-1]
+    if n - last > 30 * fps:                       # long silence at the end: it stopped
+        return (last / fps + tail, "end")
+    best = None
+    for offset in (0, 10, 30):
+        ref_at = first + int(offset * fps)
+        ref = frames[ref_at:ref_at + window]
+        if not any(ref):
+            continue
+        for period in range(int(min_seconds * fps), n - ref_at - window + 1):
+            if best is not None and period >= best[0]:
+                break
+            if frames[ref_at + period:ref_at + period + window] == ref:
+                best = (period, ref_at)
+                break
+    if best is None:
+        return None
+    period, at = best
+    while at > 0 and frames[at - 1] == frames[at - 1 + period]:
+        at -= 1
+    return ((at + period) / fps, "loop")

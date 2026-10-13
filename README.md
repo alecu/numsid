@@ -9,6 +9,9 @@ cycle by cycle with numpy. No SID or C64 emulation libraries are used, only
 python -m pysid sids/Commando.sid
 ```
 
+![pysid playing Rob Hubbard's Commando: three voice oscilloscopes with
+note, waveform and ADSR readouts, and the mixed output](docs/screenshot.png)
+
 Playback is real time. Rendering Commando costs about 0.13 s of CPU per second
 of audio offline, and about 25–40% of one core during live playback with the
 visualiser open.
@@ -20,6 +23,11 @@ uv venv .venv && uv pip install --python .venv/bin/python -e '.[test]'
 ```
 
 (or `python -m venv .venv && .venv/bin/pip install -e '.[test]'`)
+
+SID tunes are not included in this repository. Get `Commando.sid` (Rob Hubbard,
+1985) from the [High Voltage SID Collection](https://www.hvsc.c64.org/), under
+`MUSICIANS/H/Hubbard_Rob/`, and put it in `sids/`. Any other PSID file works
+the same way. Tests that need the tune are skipped when it is missing.
 
 ## Usage
 
@@ -33,30 +41,55 @@ uv venv .venv && uv pip install --python .venv/bin/python -e '.[test]'
 ```
 
 Window keys: `←/→` subtune, `1 2 3` mute a voice, `SPACE` pause, `F` filter
-on/off, `M` switch between 6581 and 8580, `ESC` quit. Scopes and register
+on/off, `M` switch between 6581 and 8580, `ESC` quit. A muted voice keeps its
+scope, drawn in gray, and loses its envelope meter. Scopes and register
 readouts follow what you are *hearing*: the emulator runs ahead of the sound
 card, and the display looks up the state for the current playback position.
 
+![Subtune 2: sawtooth lead on voice 2, detuned pulse on voice 1, voice 3
+muted](docs/screenshot-song2.png)
+
+### Videos and screenshots
+
+```bash
+.venv/bin/python -m pysid sids/Commando.sid --video commando.mp4     # 1080p60 MP4
+.venv/bin/python -m pysid sids/Commando.sid --screenshot shot.png --at 52
+```
+
+`--video` renders the visualiser offline on a fixed 60 fps timeline into an
+offscreen 4× multisampled framebuffer. The emulator's own audio for that
+timeline is encoded with it, so sync is exact and no frames drop. By default
+it detects where the song's notes start repeating, records one full loop, and
+fades out over the restart (Commando's main theme loops after 3:55.6). A
+jingle that simply stops is recorded until its last note has died away. Use
+`--seconds`, `--fps`, `--size 2560x1440` and `--fade` to override, and
+`--mute 1,3` to silence voices. It needs `ffmpeg` on the PATH and encodes
+H.264 + AAC (BT.709), ready for YouTube.
+
 ## How it works
 
-```
- .sid file ──► psid.py  ──► c64.py: 64K RAM, I/O map, init/play calls
-                               │
-                               ▼  cpu6502.py: every write to $D400-$D7FF is
-                               │  tagged with the CPU cycle it happened on
-                               ▼
-              sid.py: render all cycles up to the frame end (≈1 MHz, numpy)
-                 per voice: accumulator → waveform × envelope
-                 mixer: direct path + filter input, × volume (per cycle)
-                               │
-                               ▼
-              resample.py: 985 kHz → 123 kHz → 44.1 kHz, band-limited
-                               │
-                               ▼
-              SID filter (state-variable, 12 dB/oct) → 16 Hz high-pass
-                               │
-                               ▼
-              audio.py (pyglet stream) / player.write_wav / gui.py
+```mermaid
+flowchart TD
+    file[".sid file"] --> psid["<b>psid.py</b><br/>parse the PSID header and data"]
+    psid --> c64["<b>c64.py</b><br/>64 KiB RAM, I/O map<br/>init once, then play every frame"]
+    c64 <--> cpu["<b>cpu6502.py</b><br/>runs the tune's own 6502 code"]
+    cpu -- "writes to $D400-$D7FF,<br/>tagged with their CPU cycle" --> voices
+
+    subgraph sid ["sid.py · cycle by cycle"]
+        voices["3 voices<br/>accumulator → waveform × envelope"] --> mixer["mixer<br/>routing, volume, DC offsets"]
+    end
+
+    mixer -- "direct path" --> res["<b>resample.py</b><br/>985 kHz → 123 kHz → 44.1 kHz<br/>band-limited, with the C64's 16 kHz RC low-pass"]
+    mixer -- "filter input" --> res
+    res -- "filter input" --> svf["SID filter<br/>state-variable, 12 dB/oct, × volume"]
+    res -- "direct path" --> sum(("mix"))
+    svf --> sum
+    sum --> hp["16 Hz output high-pass"]
+    hp --> live["<b>audio.py</b><br/>live playback through pyglet"]
+    hp --> wav["<b>player.py</b><br/>WAV export"]
+    hp --> rec["<b>record.py</b><br/>MP4 video, PNG screenshots"]
+    sid -. "scope taps" .-> gui["<b>gui.py</b><br/>oscilloscopes and registers"]
+    gui --> rec
 ```
 
 * **CPU (`cpu6502.py`)**: every documented 6502 opcode plus the common
