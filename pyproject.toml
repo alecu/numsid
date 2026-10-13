@@ -1,0 +1,20 @@
+[project]
+name = "pysid"
+version = "0.1.0"
+description = "Commodore 64 SID player: 6502 CPU and MOS 6581/8580 SID emulated in Python + numpy"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "pyglet>=2.0"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+pysid = "pysid.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pysid"]
