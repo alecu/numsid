@@ -219,7 +219,7 @@ _BRANCH_COND = {
 
 _IMPLIED = {
     "CLC": ["self.c = 0"], "SEC": ["self.c = 1"],
-    "CLI": ["self.i = 0"], "SEI": ["self.i = 1"],
+    "CLI": ["self.i = 0", "if self.irq_pending: self.until = 0"], "SEI": ["self.i = 1"],
     "CLD": ["self.d = 0"], "SED": ["self.d = 1"],
     "CLV": ["self.v = 0"],
     "TAX": ["self.x = self.zf = self.nf = self.a"],
@@ -236,13 +236,14 @@ _IMPLIED = {
     "PHA": _fmt(_PUSH, "self.a"),
     "PHP": _fmt(_PUSH, "self.get_p() | 0x10"),
     "PLA": _fmt(_PULL, "v") + ["self.a = self.zf = self.nf = v"],
-    "PLP": _fmt(_PULL, "v") + ["self.set_p(v)"],
+    "PLP": _fmt(_PULL, "v") + ["self.set_p(v)", "if self.irq_pending and not self.i: self.until = 0"],
     "RTS": _fmt(_PULL, "lo") + _fmt(_PULL, "hi") + [
         "self.pc = pc = (((hi << 8) | lo) + 1) & 0xFFFF",
         "if pc == self.trap: raise _Return"],
     "RTI": _fmt(_PULL, "v") + ["self.set_p(v)"] + _fmt(_PULL, "lo") + _fmt(_PULL, "hi") + [
         "self.pc = pc = (hi << 8) | lo",
-        "if pc == self.trap: raise _Return"],
+        "if pc == self.trap: raise _Return",
+        "if self.irq_pending and not self.i: self.until = 0"],
     "BRK": ["raise CPUHalt('BRK at $%04X' % ((self.pc - 1) & 0xFFFF))"],
     "KIL": ["raise CPUHalt('JAM opcode at $%04X' % ((self.pc - 1) & 0xFFFF))"],
 }
@@ -255,9 +256,11 @@ def _read_value(mode):
 
 
 def _write_value(mode, var):
+    # The processor port at $00/$01 (memory banking) and everything from
+    # $D000 up (I/O, RAM under the KERNAL ROM) go through the bus.
     if mode in _ZERO_PAGE:
-        return [f"mem[ea] = {var}"]
-    return [f"if (ea & 0xF000) == 0xD000: io_write(ea, {var})", f"else: mem[ea] = {var}"]
+        return [f"if ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
+    return [f"if ea >= 0xD000 or ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
 
 
 def _gen_source(opcode, mnem, mode, cycles):
@@ -271,13 +274,16 @@ def _gen_source(opcode, mnem, mode, cycles):
             "    npc = (pc + 1 + (off - 256 if off & 0x80 else off)) & 0xFFFF",
             "    self.pc = npc",
             "    self.clock += 4 if (npc ^ (pc + 1)) & 0xFF00 else 3",
+            "    if npc == pc - 1 and self.clock < self.until: self.clock = self.until",
             "else:",
             "    self.pc = (pc + 1) & 0xFFFF",
             "    self.clock += 2",
         ]
         clock = None
     elif mnem == "JMP" and mode == "abs":
-        body = ["pc = self.pc", "self.pc = mem[pc] | (mem[(pc + 1) & 0xFFFF] << 8)"]
+        body = ["pc = self.pc", "self.pc = target = mem[pc] | (mem[(pc + 1) & 0xFFFF] << 8)",
+                # JMP * idles until the next interrupt: skip ahead
+                "if target == pc - 1 and self.clock < self.until: self.clock = self.until - 3"]
     elif mnem == "JMP":   # indirect, with the NMOS page-wrap bug
         body = ["pc = self.pc", "ptr = mem[pc] | (mem[(pc + 1) & 0xFFFF] << 8)",
                 "self.pc = mem[ptr] | (mem[(ptr & 0xFF00) | ((ptr + 1) & 0xFF)] << 8)"]
@@ -338,7 +344,7 @@ OPCODES = {e[0]: (e[1], e[2], e[3]) for e in _ENTRIES}
 
 class CPU6502:
     __slots__ = ("mem", "a", "x", "y", "sp", "pc", "c", "zf", "nf", "v", "d", "i",
-                 "clock", "trap", "ops")
+                 "clock", "trap", "until", "irq_pending", "ops")
 
     def __init__(self, mem: bytearray, io_read, io_write):
         self.mem = mem
@@ -350,7 +356,9 @@ class CPU6502:
         self.zf = 1
         self.nf = 0
         self.clock = 0          # cycle counter (shared time base with the SID)
-        self.trap = -1          # return address that ends call()
+        self.trap = -1          # return address that ends call() / run()
+        self.until = 0          # run until the clock reaches this (devices may cut it short)
+        self.irq_pending = False  # an IRQ is waiting for the I flag to clear
         self.ops = _factory(self, mem, io_read, io_write, self._adc, self._sbc,
                             CPUHalt, _Return)
 
@@ -421,15 +429,34 @@ class CPU6502:
         self.mem[0x100 | self.sp] = value & 0xFF
         self.sp = (self.sp - 1) & 0xFF
 
+    def interrupt(self, vector: int) -> None:
+        """Enter an IRQ or NMI handler through the vector at `vector`
+        ($FFFE or $FFFA), as the hardware does: push PC and P, set I."""
+        pc = self.pc
+        self.push(pc >> 8)
+        self.push(pc & 0xFF)
+        self.push(self.get_p() & ~0x10)
+        self.i = 1
+        mem = self.mem
+        self.pc = mem[vector] | (mem[(vector + 1) & 0xFFFF] << 8)
+        self.clock += 7
+
+    def run(self) -> None:
+        """Execute until the clock reaches `until`.  Raises _Return when
+        execution returns to `trap`, CPUHalt on a crash."""
+        mem = self.mem
+        ops = self.ops
+        while self.clock < self.until:
+            pc = self.pc
+            self.pc = (pc + 1) & 0xFFFF
+            ops[mem[pc]]()
+
     def call(self, addr: int, max_cycles: int, *, a: int | None = None,
              mode: str = "jsr", trap: int = 0xFFF8) -> bool:
         """Run the routine at `addr` until it returns or `max_cycles` elapse.
 
         mode "jsr": called like JSR, ends with RTS.
         mode "irq": entered like a hardware IRQ, ends with RTI.
-        mode "kernal_irq": like "irq" but A, X, Y are pushed first, as the
-        KERNAL entry at $FF48 does before JMP ($0314); such handlers exit
-        through $EA31/$EA81, which pull them again before RTI.
         Returns True if the routine returned to the trap address.
         """
         if a is not None:
@@ -443,19 +470,10 @@ class CPU6502:
             self.push(trap & 0xFF)
             self.push(self.get_p() & ~0x10)
             self.i = 1
-            if mode == "kernal_irq":
-                self.push(self.a)
-                self.push(self.x)
-                self.push(self.y)
         self.pc = addr
-        end = self.clock + max_cycles
-        mem = self.mem
-        ops = self.ops
+        self.until = self.clock + max_cycles
         try:
-            while self.clock < end:
-                pc = self.pc
-                self.pc = (pc + 1) & 0xFFFF
-                ops[mem[pc]]()
+            self.run()
         except _Return:
             return True
         return False

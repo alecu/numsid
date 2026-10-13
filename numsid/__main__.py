@@ -51,9 +51,6 @@ def main(argv: list[str] | None = None) -> int:
     print(tune.describe())
     if args.info:
         return 0
-    if tune.is_rsid:
-        print("note: RSID tunes expect a full C64 (CIA/VIC interrupts); "
-              "only PSID-style init/play is emulated, so this may not play correctly.")
 
     song = args.song or tune.start_song
     if not 1 <= song <= tune.songs:

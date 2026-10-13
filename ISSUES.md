@@ -16,9 +16,11 @@ how many popular tunes they unlock.
 |-----|--------|---------|--------|
 | B2: preset volume 15 for PSIDs | one line | 2 silent tunes, and the start click on 34 more | fixed |
 | B1: follow CIA timer writes during play | small, in `C64.play_frame` | 6 tunes with wrong tempo, including #1 Wizball | fixed |
-| F2 + F1: RSID environment | large: CIA/VIC interrupts, continuous CPU | 14 RSID tunes | open |
+| F2 + F1: RSID environment | large: CIA/VIC interrupts, continuous CPU | 14 RSID tunes | done |
+| O1: VIC bad lines | medium | busy-loop timing (some RSID samples) | open |
+| O2: speed of sample-playing RSIDs | medium | headroom for live playback | open |
 
-## Fixed bugs
+## Fixed
 
 How the fixes were verified:
 * Every Top 100 tune was rendered (10 s) before and after the fixes. 40 are
@@ -106,9 +108,7 @@ How the fixes were verified:
   * The offset stops tracking after 16 changes, so `$D418` sample playback
     keeps its full effect.
 
-## Pending features
-
-### F1. RSID support: a real interrupt-driven C64
+### F1. RSID support: a real interrupt-driven C64 (implemented)
 
 * **Affects (RSID files):** #15 Arkanoid, #18 The Great Giana Sisters,
   #23 The Way of the Exploding Fist, #31 Turbo Outrun, #34 Stormlord,
@@ -135,15 +135,30 @@ How the fixes were verified:
     Rocky Star, Tetris, and Robocop (until it crashes, see F2), plus Giana
     Sisters, Turbo Outrun and Stormlord only very quietly. All have the
     wrong timing and lack their sampled parts, so none count as working.
-* **Needed:**
-  * run the CPU continuously instead of call-and-return,
-  * cycle-counted CIA1/CIA2 timers A/B with interrupt control registers
-    (IRQ and NMI),
-  * VIC raster counter and raster-compare IRQ, with `$D019` acknowledge,
-  * IRQ/NMI entry through the real vectors, honouring the I flag,
-  * a minimal KERNAL IRQ entry for tunes that use `$0314`.
+* **Implemented:**
+  * RSID tunes now run on a continuously running CPU (`C64._run_machine`).
+    It runs to the next device event, then takes interrupts: IRQ is
+    level-triggered and waits for the I flag; NMI fires on the edge.
+  * CIA 1 / CIA 2 timers and interrupt control registers (`cia.py`).
+  * The VIC raster counter and raster-compare IRQ with `$D019`
+    acknowledge (`vic.py`).
+  * `JMP *` and branch-to-self idle loops are skipped over, so idling
+    costs nothing.
+* **Verified:**
+  * Synthetic tests cover a raster IRQ through `$0314`/`$EA81`, and a
+    CIA IRQ through the tune's own `$FFFE` with the ROMs banked out and an
+    init that never returns. They also cover CIA 2 NMIs at 9.7 kHz, all at
+    the exact rates.
+  * All 14 RSIDs now play; none is silent or crashes. Their interrupts run
+    at the rates they program: the sample NMIs of Turbo Outrun, To Be on
+    Top, Dulcedo Cogitationis and Giana Sisters at 1.4-6.8 kHz, and
+    Arkanoid's music IRQ at 52.05 Hz, as its timer latch implies.
+  * Robocop's song length matches HVSC (191.5 vs 193 s).
+  * PSIDs were unaffected: 85 render bit-identically to the previous
+    version. #66 Synth Sample (play address 0) changed slightly because it
+    now goes through the KERNAL's real IRQ entry.
 
-### F2. More KERNAL ROM entry points
+### F2. More KERNAL ROM entry points (implemented)
 
 * **Affects:** #44 To Be on Top (JAM at `$EAA2`), #49 Robocop (BRK at
   `$EA7E`).
@@ -151,15 +166,48 @@ How the fixes were verified:
   two KERNAL IRQ exits `$EA31` and `$EA81`. These tunes jump to other
   points in the same handler: `$EA7E` acknowledges CIA1 and then exits, and
   the keyboard-scan path continues to `$EAA2`.
-* **Fix:** provide stubs for the whole `$EA31-$EA89` IRQ path, the
-  `$FF48` IRQ and `$FE43/$FE47` NMI entries, and the vectors they use. The
-  Commodore ROMs can't be shipped; libsidplayfp has its own small
-  replacement KERNAL for the same reason. Probably needed together with F1,
-  since both affected tunes are RSID.
+* **Implemented:** `kernal.py` builds a replacement 8 KB KERNAL. It is
+  banked in at `$E000` whenever HIRAM is set, and writes go to the RAM
+  underneath. It provides:
+  * the hardware vectors and the `$FF48` IRQ/BRK entry,
+  * the `$EA31` handler (jiffy clock, then a NOP sled to `$EA7E`/`$EA81`),
+  * the NMI path `$FE43`/`$FE47`/`$FEBC`,
+  * `RESTOR`, `GETIN` and `STOP`, and a jump table where every other
+    routine is a harmless `RTS`.
+
+  PSIDs now get the bank values the PSID spec asks for (`$37/$36/$34/$35`
+  by code address), so tunes loaded under the ROM still see their RAM. Both
+  affected tunes play: Robocop as described under F1, and To Be on Top
+  with its samples.
+
+## Open
+
+### O1. VIC bad lines and sprite DMA are not emulated
+
+* **Symptom:** on a real C64 the VIC halts the CPU for about 40 cycles on
+  every eighth visible raster line (and for sprites), roughly 5% of all
+  cycles. numsid never does. Interrupt-driven music is unaffected, but
+  anything timed by busy loops runs slightly fast, such as sample playback
+  in a main loop.
+* **Candidates:** Arkanoid's detected length is 115.7 s against HVSC's
+  137 s (its music IRQ rate is exactly right), and Savage's is 52.3 s
+  against 169 s. Both may also be loop-detection artefacts. Verify by ear.
+* **Fix:** stall the CPU on bad lines (when the display is enabled) and
+  for active sprites, using the VIC registers.
+
+### O2. Sample-playing RSIDs render at only about 2× real time
+
+* **Affects:** #60 BMX Kidz and #68 Nightdawn (about 1.9×), Giana Sisters,
+  To Be on Top and Dulcedo Cogitationis (about 2.5×).
+* **Cause:** a CIA 2 NMI at 4-7 kHz means thousands of interrupt entries
+  and handler runs in Python per second. Each `$D418` write also starts a
+  new mixer segment.
+* **Fix ideas:** build the per-cycle volume as one array instead of a
+  segment per write, and make the scheduler loop leaner.
 
 ## Compatibility table
 
-**Summary:** 86 work and 14 are broken. The broken ones are all RSID files (F1, F2). Results reflect the fixes for B1 and B2.
+**Summary:** 98 work, 2 work but need checking by ear, 0 are broken. Results include the fixes for B1, B2, F1 and F2.
 
 | # | Tune | Composer | Result | Notes |
 |--:|------|----------|--------|-------|
@@ -177,15 +225,15 @@ How the fixes were verified:
 | 12 | Last Ninja 2 | Matt Gray | ✅ works | heard 30 s in the survey |
 | 13 | Mutants | Fred Gray | ✅ works | quieter than most tunes (mostly triangle); verify by ear; heard 30 s in the survey |
 | 14 | Knucklebusters | Rob Hubbard | ✅ works |  |
-| 15 | Arkanoid | Martin Galway | ❌ broken | RSID (F1) |
+| 15 | Arkanoid | Martin Galway | ⚠️ works, with defects | RSID, plays (F1); length 115.7 s vs HVSC 137 s, verify by ear (O1) |
 | 16 | Crazy Comets | Rob Hubbard | ✅ works |  |
 | 17 | Auf Wiedersehen Monty | Rob Hubbard & Ben Daglish | ✅ works |  |
-| 18 | The Great Giana Sisters | Chris Hülsbeck | ❌ broken | RSID with CIA2 NMI samples (F1) |
+| 18 | The Great Giana Sisters | Chris Hülsbeck | ✅ works | RSID, plays with NMI samples (F1) |
 | 19 | Ghouls 'n' Ghosts | Tim Follin | ✅ works | uses combined waveforms (approximate model) |
 | 20 | Ghosts'n Goblins | Mark Cooksey | ✅ works |  |
 | 21 | Nemesis the Warlock | Rob Hubbard | ✅ works |  |
 | 22 | Green Beret | Martin Galway | ✅ works |  |
-| 23 | The Way of the Exploding Fist | Neil Brennan | ❌ broken | RSID, init never returns (F1) |
+| 23 | The Way of the Exploding Fist | Neil Brennan | ✅ works | RSID (F1); start song is a 3 s jingle, as in HVSC |
 | 24 | Platoon | Jonathan Dunn | ✅ works |  |
 | 25 | R-type | Chris Hülsbeck & Ramiro Vaca | ✅ works |  |
 | 26 | Lightforce | Rob Hubbard | ✅ works |  |
@@ -193,10 +241,10 @@ How the fixes were verified:
 | 28 | Robocop 3 | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 29 | Myth | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 30 | The Master of Magic | Rob Hubbard | ✅ works |  |
-| 31 | Turbo Outrun | Jeroen Tel / Maniacs of Noise | ❌ broken | RSID, raster IRQ + NMI (F1) |
+| 31 | Turbo Outrun | Jeroen Tel / Maniacs of Noise | ✅ works | RSID, plays with NMI samples (F1) |
 | 32 | Trap | Ben Daglish | ✅ works |  |
 | 33 | Sweet | Johannes Bjerregaard | ✅ works |  |
-| 34 | Stormlord | Johannes Bjerregaard & J. Tel | ❌ broken | RSID, raster IRQ + NMI (F1) |
+| 34 | Stormlord | Johannes Bjerregaard & J. Tel | ✅ works | RSID, plays with NMI samples (F1) |
 | 35 | Spellbound | Rob Hubbard | ✅ works |  |
 | 36 | Parallax | Martin Galway | ✅ works | fixed by B2 (was silent) |
 | 37 | IK+ | Rob Hubbard | ✅ works | uses combined waveforms a lot (approximate model) |
@@ -206,12 +254,12 @@ How the fixes were verified:
 | 41 | Hysteria | Fred Gray | ✅ works | quieter than most tunes; verify by ear |
 | 42 | Defender of the Crown | Richard Joseph | ✅ works | fixed by B1 (timer stop/start); length matches HVSC |
 | 43 | Ocean Loader 3 | Peter Clarke | ✅ works | fixed by B1 (44.7 Hz); length matches HVSC |
-| 44 | To Be on Top | Chris Hülsbeck | ❌ broken | RSID; crashes in missing KERNAL code (F1, F2) |
+| 44 | To Be on Top | Chris Hülsbeck | ✅ works | RSID, plays with NMI samples (F1, F2) |
 | 45 | Armalyte | Martin Walker | ✅ works |  |
 | 46 | Mega Apocalypse | Rob Hubbard & Simon Nicol | ✅ works |  |
-| 47 | Dulcedo Cogitationis | Chris Hülsbeck | ❌ broken | RSID, silent (F1) |
+| 47 | Dulcedo Cogitationis | Chris Hülsbeck | ✅ works | RSID, plays with NMI samples (F1) |
 | 48 | Thing Bounces Back | Ben Daglish | ✅ works | uses combined waveforms (approximate model) |
-| 49 | Robocop | Jonathan Dunn | ❌ broken | RSID; crashes in missing KERNAL code (F1, F2) |
+| 49 | Robocop | Jonathan Dunn | ✅ works | RSID (F1, F2); length matches HVSC |
 | 50 | Cooperation Demo | Kim Christensen (Future Freak) | ✅ works |  |
 | 51 | Zoids | Rob Hubbard | ✅ works |  |
 | 52 | Supremacy | Jeroen Tel / Maniacs of Noise | ✅ works |  |
@@ -219,21 +267,21 @@ How the fixes were verified:
 | 54 | Driller | Matt Gray | ✅ works |  |
 | 55 | Times of Lore | Martin Galway | ✅ works | fixed by B1 (2 calls per frame) |
 | 56 | One Man & His Droid | Rob Hubbard | ✅ works |  |
-| 57 | Savage | Jeroen Tel / Maniacs of Noise | ❌ broken | RSID, silent (F1) |
+| 57 | Savage | Jeroen Tel / Maniacs of Noise | ⚠️ works, with defects | RSID, plays (F1); length 52.3 s vs HVSC 169 s, verify by ear |
 | 58 | ACE II | Rob Hubbard | ✅ works |  |
 | 59 | Thrust | Rob Hubbard | ✅ works |  |
-| 60 | BMX Kidz | Rob Hubbard & Jori Olkkonen | ❌ broken | RSID, nearly silent (F1) |
+| 60 | BMX Kidz | Rob Hubbard & Jori Olkkonen | ✅ works | RSID, plays with NMI samples (F1); ~2x real time (O2) |
 | 61 | Kinetix | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 62 | Scroll Machine | Jori Olkkonen (Yip) | ✅ works |  |
 | 63 | The Baby of Can Guru | Chris Hülsbeck | ✅ works | fixed by B1 (59.2 Hz) |
 | 64 | Wizardry | Mike Alsop | ✅ works |  |
 | 65 | Gauntlet III | Tim & Geoff Follin | ✅ works |  |
 | 66 | Synth Sample | Georg Feil | ✅ works | PSID with its own IRQ handler; NTSC; `$D418` written 3×/frame |
-| 67 | Grand Prix Circuit | Kris Hatlelid | ❌ broken | RSID (F1) |
-| 68 | Nightdawn | Johannes Bjerregaard | ❌ broken | RSID, silent (F1) |
+| 67 | Grand Prix Circuit | Kris Hatlelid | ✅ works | RSID, plays (F1) |
+| 68 | Nightdawn | Johannes Bjerregaard | ✅ works | RSID, plays with NMI samples (F1); ~2x real time (O2) |
 | 69 | Scumball | Tim Follin | ✅ works |  |
 | 70 | R.I.S.K. | Wally Beben | ✅ works |  |
-| 71 | Rocky Star | Kim Christensen (Future Freak) | ❌ broken | RSID, init never returns (F1) |
+| 71 | Rocky Star | Kim Christensen (Future Freak) | ✅ works | RSID, plays (F1) |
 | 72 | Snare | Martin Walker | ✅ works |  |
 | 73 | Bionic Commando | Tim Follin | ✅ works |  |
 | 74 | Katakis | Chris Hülsbeck | ✅ works |  |
@@ -262,4 +310,4 @@ How the fixes were verified:
 | 97 | Kentilla | Rob Hubbard | ✅ works |  |
 | 98 | Crazy Comets (remix) | Johannes Bjerregaard | ✅ works |  |
 | 99 | Terra Cresta | Martin Galway | ✅ works |  |
-| 100 | Tetris | Wally Beben | ❌ broken | RSID, wrong timing (F1) |
+| 100 | Tetris | Wally Beben | ✅ works | RSID, plays with NMI samples (F1) |

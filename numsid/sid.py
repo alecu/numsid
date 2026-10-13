@@ -650,6 +650,14 @@ class SID:
         out = direct.astype(np.float64)
         pos = 0
         changes = self.param_changes
+        if abs(self.ic1) < 1.0 and abs(self.ic2) < 1.0 and not filt_in.any():
+            # filter path silent: just catch up with the parameter changes
+            # (sample players write $D418 thousands of times per second)
+            self.ic1 = self.ic2 = 0.0
+            end = k0 + len(out)
+            while changes and changes[0][0] < end:
+                self.params = changes.popleft()[1]
+            pos = len(out)
         while pos < len(out):
             end = len(out)
             if changes and changes[0][0] < k0 + end:

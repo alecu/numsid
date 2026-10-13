@@ -76,8 +76,9 @@ H.264 + AAC (BT.709), ready for YouTube.
 ```mermaid
 flowchart TD
     file[".sid file"] --> psid["<b>psid.py</b><br/>parse the PSID header and data"]
-    psid --> c64["<b>c64.py</b><br/>64 KiB RAM, I/O map<br/>init once, then play every frame"]
+    psid --> c64["<b>c64.py</b><br/>RAM, ROM banking, KERNAL stand-in<br/>PSID: init, then play calls<br/>RSID: a free-running machine"]
     c64 <--> cpu["<b>cpu6502.py</b><br/>runs the tune's own 6502 code"]
+    c64 <--> chips["<b>cia.py</b>, <b>vic.py</b><br/>timers, raster counter<br/>IRQ and NMI sources"]
     cpu -- "writes to $D400-$D7FF,<br/>tagged with their CPU cycle" --> voices
 
     subgraph sid ["sid.py · cycle by cycle"]
@@ -102,6 +103,19 @@ flowchart TD
   branch penalties. Each opcode is a generated Python closure with its
   addressing mode inlined. Commando's player costs under 10 ms of Python per
   second of music.
+* **Machine (`c64.py`, `cia.py`, `vic.py`, `kernal.py`)**:
+  * **PSID tunes:** init is called once and play every frame, or on every
+    CIA 1 timer A underflow for CIA-timed songs. The timer model follows the
+    latch, force-load and stop/start writes a play routine makes.
+  * **RSID tunes:** the CPU runs continuously, and the tune's own interrupts
+    drive it: CIA timer IRQs, CIA 2 NMIs (sampled drums) and VIC
+    raster-compare IRQs. Each is entered through the real vectors at the
+    cycle it fires. Idle loops like `JMP *` are skipped.
+  * **KERNAL:** a small replacement for the KERNAL ROM (the Commodore ROMs
+    can't be shipped) provides the interrupt entry points and handlers, the
+    jiffy clock, and harmless stand-ins for everything else.
+  * **Banking:** the KERNAL and I/O are banked through `$01` like the real
+    PLA, and writes reach the RAM underneath.
 * **Timing**: register writes carry their cycle timestamp, and the SID splits
   each voice's timeline exactly there. Gate toggles within a frame, the ADSR
   delay bug, and sync and ring-mod phase relationships therefore come out as
@@ -145,12 +159,14 @@ subtunes.
 ## Limitations
 
 [ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
-with a compatibility table for the HVSC Top 100. Of those 100 tunes, 86 play
-correctly; the 14 that don't are RSID files.
+with a compatibility table for the HVSC Top 100: all 100 now play, RSID files
+included. Two RSIDs still need checking by ear.
 
-* **PSID only.** RSID tunes that rely on real CIA/VIC interrupts, NMIs or
-  KERNAL/BASIC ROM code won't play correctly. IRQ-style PSIDs (play address
-  0) are supported through stub KERNAL IRQ exits.
+* No VIC bad lines or sprite DMA, so the CPU never loses the cycles the
+  video chip steals on a real C64. Tunes that time things with busy loops
+  instead of interrupts run slightly fast.
+* No BASIC or character ROM, and only a stand-in KERNAL. Tunes that call
+  real ROM routines get a harmless return.
 * One SID chip (no 2SID/3SID tunes).
 * The filter is linear: no 6581 distortion or chip-to-chip variation, and
   reSID 0.16's mild resonance range.
