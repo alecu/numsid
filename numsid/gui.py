@@ -261,9 +261,9 @@ class Visualizer(pyglet.window.Window):
         w, h = WINDOW_LAYOUT
         try:
             config = pyglet.gl.Config(sample_buffers=1, samples=4, double_buffer=True)
-            super().__init__(w, h, caption=f"pysid - {player.tune.name}", config=config)
+            super().__init__(w, h, caption=f"numsid - {player.tune.name}", config=config)
         except pyglet.window.NoSuchConfigException:
-            super().__init__(w, h, caption=f"pysid - {player.tune.name}")
+            super().__init__(w, h, caption=f"numsid - {player.tune.name}")
         glClearColor(*(c / 255 for c in BG), 1.0)
         self.player = player
         self.live = LivePlayback(player, latency)

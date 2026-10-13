@@ -1,8 +1,8 @@
-"""pysid command line.
+"""numsid command line.
 
-    python -m pysid TUNE.sid                 window with scopes + live audio
-    python -m pysid TUNE.sid --headless      live audio only
-    python -m pysid TUNE.sid --wav out.wav   render to a WAV file instead
+    python -m numsid TUNE.sid                 window with scopes + live audio
+    python -m numsid TUNE.sid --headless      live audio only
+    python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from .player import Player, write_wav
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="pysid", description="Play C64 SID tunes, emulated in Python.")
+    ap = argparse.ArgumentParser(prog="numsid", description="Play C64 SID tunes, emulated in Python.")
     ap.add_argument("tune", help="PSID/RSID file")
     ap.add_argument("-s", "--song", type=int, help="subtune number (default: the file's start song)")
     ap.add_argument("-m", "--model", choices=("6581", "8580"),
@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         tune = psid.load(args.tune)
     except (OSError, psid.SIDFileError) as exc:
-        print(f"pysid: {exc}", file=sys.stderr)
+        print(f"numsid: {exc}", file=sys.stderr)
         return 1
     print(tune.describe())
     if args.info:
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
 
     song = args.song or tune.start_song
     if not 1 <= song <= tune.songs:
-        print(f"pysid: song must be 1..{tune.songs}", file=sys.stderr)
+        print(f"numsid: song must be 1..{tune.songs}", file=sys.stderr)
         return 1
 
     visual = args.video or args.screenshot or not (args.wav or args.headless)

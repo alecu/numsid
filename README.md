@@ -1,4 +1,4 @@
-# pysid
+# numsid
 
 A Commodore 64 SID music player written in Python. The MOS 6502 CPU runs the
 tune's own player code, and the MOS 6581/8580 SID chip is synthesised
@@ -6,10 +6,10 @@ cycle by cycle with numpy. No SID or C64 emulation libraries are used, only
 `numpy` for the maths and `pyglet` for audio output and the window.
 
 ```
-python -m pysid sids/Commando.sid
+python -m numsid sids/Commando.sid
 ```
 
-![pysid playing Rob Hubbard's Commando: three voice oscilloscopes with
+![numsid playing Rob Hubbard's Commando: three voice oscilloscopes with
 note, waveform and ADSR readouts, and the mixed output](docs/screenshot.png)
 
 Playback is real time. Rendering Commando costs about 0.13 s of CPU per second
@@ -32,12 +32,12 @@ the same way. Tests that need the tune are skipped when it is missing.
 ## Usage
 
 ```bash
-.venv/bin/python -m pysid sids/Commando.sid                 # window + live audio
-.venv/bin/python -m pysid sids/Commando.sid --song 2        # pick a subtune
-.venv/bin/python -m pysid sids/Commando.sid --headless      # audio only, Ctrl-C stops
-.venv/bin/python -m pysid sids/Commando.sid --wav commando.wav --seconds 240
-.venv/bin/python -m pysid sids/Commando.sid --model 8580 --no-filter --gain 1.5
-.venv/bin/python -m pysid sids/Commando.sid --info          # header only
+.venv/bin/python -m numsid sids/Commando.sid                 # window + live audio
+.venv/bin/python -m numsid sids/Commando.sid --song 2        # pick a subtune
+.venv/bin/python -m numsid sids/Commando.sid --headless      # audio only, Ctrl-C stops
+.venv/bin/python -m numsid sids/Commando.sid --wav commando.wav --seconds 240
+.venv/bin/python -m numsid sids/Commando.sid --model 8580 --no-filter --gain 1.5
+.venv/bin/python -m numsid sids/Commando.sid --info          # header only
 ```
 
 Window keys: `←/→` subtune, `1 2 3` mute a voice, `SPACE` pause, `F` filter
@@ -52,8 +52,8 @@ muted](docs/screenshot-song2.png)
 ### Videos and screenshots
 
 ```bash
-.venv/bin/python -m pysid sids/Commando.sid --video commando.mp4     # 1080p60 MP4
-.venv/bin/python -m pysid sids/Commando.sid --screenshot shot.png --at 52
+.venv/bin/python -m numsid sids/Commando.sid --video commando.mp4     # 1080p60 MP4
+.venv/bin/python -m numsid sids/Commando.sid --screenshot shot.png --at 52
 ```
 
 `--video` renders the visualiser offline on a fixed 60 fps timeline into an

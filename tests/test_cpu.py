@@ -1,6 +1,6 @@
 import pytest
 
-from pysid.cpu6502 import CPU6502, CPUHalt, OPCODES
+from numsid.cpu6502 import CPU6502, CPUHalt, OPCODES
 
 
 def make(program, at=0x1000):

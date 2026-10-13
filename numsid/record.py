@@ -27,7 +27,7 @@ from pyglet.math import Mat4
 from .gui import BG, VIDEO_LAYOUT, WINDOW_LAYOUT, Dashboard, chip_line
 from .player import Player, write_wav
 
-CREDIT = "pysid  ·  6502 CPU and SID chip emulated cycle by cycle in Python + numpy"
+CREDIT = "numsid  ·  6502 CPU and SID chip emulated cycle by cycle in Python + numpy"
 
 
 class Offscreen:
@@ -118,7 +118,7 @@ def record_video(player: Player, path: str | Path, seconds: float, *, fps: int =
     dash = Dashboard(player, w, VIDEO_LAYOUT, footer=CREDIT, progress=True,
                      max_points=1600, line_width=1.6)
     timeline = _Timeline(player)
-    tmpdir = Path(tempfile.mkdtemp(prefix="pysid-video-"))
+    tmpdir = Path(tempfile.mkdtemp(prefix="numsid-video-"))
     video_only = tmpdir / "video.mp4"
     wav = tmpdir / "audio.wav"
     colour = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
