@@ -5,6 +5,11 @@ tune's own player code, and the MOS 6581/8580 SID chip is synthesised
 cycle by cycle with numpy. No SID or C64 emulation libraries are used, only
 `numpy` for the maths and `pyglet` for audio output and the window.
 
+[![Video: numsid playing Commando by Rob Hubbard](https://img.youtube.com/vi/QAMZvv-m03c/maxresdefault.jpg)](https://www.youtube.com/watch?v=QAMZvv-m03c)
+
+▶ [Watch numsid play the whole Commando main theme on YouTube](https://www.youtube.com/watch?v=QAMZvv-m03c)
+(rendered with `--video`).
+
 ```
 python -m numsid sids/Commando.sid
 ```
@@ -138,6 +143,11 @@ filter modes, determinism, chunk-size independence, and all 19 Commando
 subtunes.
 
 ## Limitations
+
+[ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
+with a compatibility table for the HVSC Top 100. Of those 100 tunes, 79 play,
+and 32 of the 79 have a known defect, mostly a click at the start that
+already has a one-line fix.
 
 * **PSID only.** RSID tunes that rely on real CIA/VIC interrupts, NMIs or
   KERNAL/BASIC ROM code won't play correctly. IRQ-style PSIDs (play address

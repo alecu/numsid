@@ -6,3 +6,5 @@ __pycache__/
 *.egg-info/
 *.mp4
 *.sid
+.DS_Store
+sids/
