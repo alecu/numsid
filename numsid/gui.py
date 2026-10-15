@@ -125,9 +125,11 @@ class Dashboard:
             footer = player.help
 
         self.title = self._label(player.title, 24, H - 40, 18, bold=True)
-        self.subtitle = self._label(player.subtitle, 24, H - 64, 11, DIM)
+        self.subtitle_text = player.subtitle
+        self.subtitle = self._label(self.subtitle_text, 24, H - 64, 11, DIM)
         self.status = self._label("", W - 24, H - 40, 12, anchor_x="right")
         self.status2 = self._label("", W - 24, H - 64, 10, DIM, anchor_x="right")
+        self.status3 = self._label("", W - 24, H - 82, 10, DIM, anchor_x="right")
         self.progress = None
         if progress:
             self.keep.append(self._rect(16, H - 84, W - 32, 3, GRID, self.bg))
@@ -187,14 +189,31 @@ class Dashboard:
         if label.text != text:
             label.text = text
 
-    def update(self, player: Player, pos: float, *, status2: str = "", paused: bool = False,
-               duration: float | None = None, brightness: float = 1.0) -> None:
+    def _fit_subtitle(self) -> None:
+        """Shorten the subtitle with an ellipsis if it would run into the
+        right-hand status line (wide fonts, long author names)."""
+        room = (self.status2.x - self.status2.content_width - self.subtitle.x
+                - 16 * self.u)
+        text = self.subtitle_text
+        self.subtitle.text = text
+        while self.subtitle.content_width > room and len(text) > 1:
+            text = text[:-1]
+            self.subtitle.text = text.rstrip(" ·") + "…"
+
+    def update(self, player: Player, pos: float, *, status2: str = "", status3: str = "",
+               paused: bool = False, duration: float | None = None,
+               brightness: float = 1.0) -> None:
+        """Show the moment heard at `pos`.  `status2` and `status3` are the
+        dim lines under the position at the top right."""
         chip = player.chip
         readout = player.readout(player.state_at(pos))
         self._set(self.status, f"{readout.position}   "
                                f"{int(pos) // 60:02d}:{int(pos) % 60:02d}"
                   + ("   PAUSED" if paused else ""))
-        self._set(self.status2, status2)
+        if self.status2.text != status2:
+            self.status2.text = status2
+            self._fit_subtitle()
+        self._set(self.status3, status3)
         if self.progress is not None and duration:
             self.progress.width = (self.W - 32) * self.u * min(pos / duration, 1.0)
         self.shade.opacity = int(255 * (1.0 - max(0.0, min(1.0, brightness))))
@@ -251,8 +270,8 @@ class Visualizer(pyglet.window.Window):
 
     def update(self, dt: float) -> None:
         self.dash.update(self.player, self.live.position, paused=not self.live.media.playing,
-                         status2=f"{self.player.chip_line()} · emulation "
-                                 f"{100 * self.live.cpu_load():.0f}% CPU")
+                         status2=self.player.chip_line(),
+                         status3=f"emulation {100 * self.live.cpu_load():.0f}% CPU")
 
     def on_draw(self) -> None:
         self.clear()
