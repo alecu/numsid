@@ -1,12 +1,18 @@
-"""MOS 6569/6567 VIC-II, reduced to what music players use: the raster
-counter and the raster-compare interrupt.
+"""MOS 6569/6567 VIC-II, reduced to what music players need: the raster
+counter, the raster-compare interrupt, and the "bad lines" on which the VIC
+halts the CPU to fetch screen data.
 
 The beam position follows directly from the cycle count (63 cycles x 312
-lines on PAL, 65 x 263 on NTSC); bad lines and sprite DMA, which steal CPU
-cycles on a real machine, are not modelled.
+lines on PAL, 65 x 263 on NTSC).  Sprite DMA, which also steals cycles, is
+not modelled.
 """
 
 from __future__ import annotations
+
+# A bad line halts the CPU from about cycle 12 of the line for 40 cycles of
+# character fetches plus the 3 cycles the CPU is warned in advance.
+BADLINE_START = 12
+BADLINE_CYCLES = 43
 
 
 class VIC:
@@ -38,6 +44,25 @@ class VIC:
             if hit is not None and hit <= now:
                 self.flags |= 1
             self.last = now
+
+    def next_badline(self, after: int) -> int | None:
+        """Cycle at which the first bad line at or after `after` halts the
+        CPU, or None while the display is switched off ($D011 bit 4).
+
+        Bad lines are the visible lines $30-$F7 whose low three bits equal
+        the vertical scroll ($D011 bits 0-2)."""
+        ctrl = self.regs[0x11]
+        if not ctrl & 0x10:
+            return None
+        cpl = self.cycles_per_line
+        first = 0x30 + ((ctrl & 7) - 0x30) % 8
+        frame_start = after - after % self.frame
+        pos = after - frame_start - BADLINE_START
+        line = max(first, -(-pos // cpl))
+        line = first + -(-(line - first) // 8) * 8
+        if line > 0xF7:
+            return frame_start + self.frame + first * cpl + BADLINE_START
+        return frame_start + line * cpl + BADLINE_START
 
     def next_event(self) -> int | None:
         if not self.enable & 1:

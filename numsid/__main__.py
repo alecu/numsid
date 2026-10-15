@@ -32,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-g", "--gain", type=float, default=1.0, help="output gain (default 1.0)")
     ap.add_argument("--no-filter", action="store_true",
                     help="bypass the SID filter / ignore the Amiga LED filter")
+    ap.add_argument("--no-digiboost", action="store_true",
+                    help="8580: leave $D418 samples nearly inaudible, as on a real C64C")
     ap.add_argument("--separation", type=float, default=100.0,
                     help="MOD stereo separation in percent: 100 is the Amiga's hard "
                          "left/right, 0 mono (default 100)")
@@ -88,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
     player = open_player(tune, start, sample_rate=args.rate, model=args.model,
                          filter_enabled=not args.no_filter, gain=args.gain,
                          scope_rate=44100 if visual else 0,
-                         separation=args.separation / 100 if is_mod else None)
+                         separation=args.separation / 100 if is_mod else None,
+                         digi_boost=None if is_mod else not args.no_digiboost)
     for v in filter(None, args.mute.split(",")):
         if not 1 <= int(v) <= player.voices:
             print(f"numsid: --mute takes voices 1..{player.voices}", file=sys.stderr)

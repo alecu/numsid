@@ -174,3 +174,19 @@ def test_volume_fade_in_from_zero_has_no_start_thump():
     assert np.abs(x[:4410]).max() < 0.02           # first 100 ms: nearly silent
     rms = np.sqrt((x.reshape(30, -1) ** 2).mean(axis=1))
     assert rms[25] > 5 * rms[3]                     # and it does fade in
+
+
+def test_8580_digi_boost_makes_volume_samples_audible():
+    # play: toggle the volume register (a square wave "sample"), no voices
+    code = bytes([
+        0x60, 0xEA, 0xEA, 0xEA,
+        0xAD, 0x40, 0x10, 0x49, 0x0F,           # $1004: LDA $1040 : EOR #$0F
+        0x8D, 0x40, 0x10, 0x8D, 0x18, 0xD4,     #   STA $1040 : STA $D418
+        0x60,
+    ]).ljust(0x41, b"\x00")
+    level = {}
+    for model, boost in (("6581", True), ("8580", False), ("8580", True)):
+        x = Player(make_tune(code, 4, cia=False), model=model, digi_boost=boost).render(44100 * 2)
+        level[model, boost] = np.sqrt(np.mean(x[44100:].astype(np.float64) ** 2))
+    assert level["8580", False] < 1e-4               # the real 8580: nearly nothing
+    assert level["8580", True] > 0.5 * level["6581", True] > 0.01

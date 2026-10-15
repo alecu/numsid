@@ -24,7 +24,7 @@ from .cia import CIA
 from .cpu6502 import CPU6502, CPUHalt, _Return
 from .kernal import DEFAULT_VECTORS, KERNAL
 from .psid import PSIDFile
-from .vic import VIC
+from .vic import BADLINE_CYCLES, VIC
 
 INIT_CYCLE_LIMIT = 5_000_000     # PSID init routines may decrunch/copy data
 PLAY_CYCLE_LIMIT = 200_000       # a single play call must not hang the player
@@ -70,6 +70,7 @@ class C64:
         self.idle = False
         self.init_returned = False
         self.nmi_line = False
+        self.badline_after = 0      # bad lines before this cycle are accounted for
         self._load()
 
     # ---- memory banking -------------------------------------------------
@@ -255,6 +256,13 @@ class C64:
         try:
             while cpu.clock < end:
                 now = cpu.clock
+                bad = vic.next_badline(self.badline_after)
+                if bad is not None and bad <= now:
+                    # the VIC halts the CPU for the character fetches
+                    self.badline_after = bad + 1
+                    if not (self.idle or self.halted):
+                        cpu.clock = max(now, bad + BADLINE_CYCLES)
+                    continue
                 cia1.sync(now)
                 cia2.sync(now)
                 vic.sync(now)
@@ -272,7 +280,7 @@ class C64:
                     self.idle = False
                     continue
                 ev = end
-                for t in (cia1.next_event(), cia2.next_event(), vic.next_event()):
+                for t in (cia1.next_event(), cia2.next_event(), vic.next_event(), bad):
                     if t is not None and t < ev:
                         ev = t
                 if ev <= now:

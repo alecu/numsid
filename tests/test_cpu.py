@@ -103,3 +103,21 @@ def test_jam_raises():
     cpu, _ = make([0x02])
     with pytest.raises(CPUHalt):
         cpu.call(0x1000, 100)
+
+
+def test_io_happens_on_the_instructions_real_cycle():
+    """Reads/writes on the last cycle; RMW: read, write back, write result."""
+    mem = bytearray(0x10000)
+    seen = []
+    cpu = CPU6502(mem, lambda a: seen.append(("r", a, cpu.clock)) or 0x41,
+                  lambda a, v: seen.append(("w", a, v, cpu.clock)))
+    # LDA $D012 (4) ; STA $D020 (4) ; INC $D019 (6) ; LDA $DC0D,X with page cross (5)
+    mem[0x1000:0x100C] = bytes([0xAD, 0x12, 0xD0, 0x8D, 0x20, 0xD0, 0xEE, 0x19, 0xD0,
+                                0xBD, 0xFF, 0xDB])
+    cpu.pc, cpu.x = 0x1000, 0x0E
+    for _ in range(4):
+        cpu.step()
+    assert seen == [("r", 0xD012, 3), ("w", 0xD020, 0x41, 7),
+                    ("r", 0xD019, 11), ("w", 0xD019, 0x41, 12), ("w", 0xD019, 0x42, 13),
+                    ("r", 0xDC0D, 18)]
+    assert cpu.clock == 19

@@ -263,6 +263,25 @@ def _write_value(mode, var):
     return [f"if ea >= 0xD000 or ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
 
 
+def _write_rmw(mode):
+    # A read-modify-write instruction writes the unmodified value back before
+    # the result (on its last two cycles).  Harmless for RAM, but I/O sees
+    # both writes: "INC $D019" or "LSR $D019" acknowledge a VIC interrupt
+    # with that first write.
+    if mode in _ZERO_PAGE:
+        return _write_value(mode, "w")
+    return ["if ea >= 0xD000:",
+            "    self.clock += 1",
+            "    io_write(ea, v)",
+            "    self.clock += 1",
+            "    io_write(ea, w)",
+            "    self.clock += 1",
+            "else:",
+            "    self.clock += 3",
+            "    if ea < 2: io_write(ea, w)",
+            "    else: mem[ea] = w"]
+
+
 def _gen_source(opcode, mnem, mode, cycles):
     body = list(_MODE[mode])
     clock = f"self.clock += {cycles}"
@@ -296,17 +315,32 @@ def _gen_source(opcode, mnem, mode, cycles):
         clock = None
     elif mode == "acc":
         body = ["v = self.a"] + _RMW_OPS[mnem] + ["self.a = w"]
+    # Memory operands outside the zero page may be I/O, which must see the
+    # access on the instruction's real cycle: reads and writes happen on the
+    # last cycle, a read-modify-write reads on the third-to-last.
     elif mnem in _READ_OPS:
-        if mode != "imm":
-            body += _read_value(mode)
-        body += _READ_OPS[mnem]
-        if mode in _INDEXED:
-            clock = f"self.clock += {cycles} + (((base & 0xFF) + idx) >> 8)"
+        if mode == "imm":
+            body += _READ_OPS[mnem]
+        elif mode in _ZERO_PAGE:
+            body += _read_value(mode) + _READ_OPS[mnem]
+        else:
+            cross = " + (((base & 0xFF) + idx) >> 8)" if mode in _INDEXED else ""
+            body += [f"self.clock += {cycles - 1}{cross}"] + _read_value(mode) + \
+                _READ_OPS[mnem] + ["self.clock += 1"]
+            clock = None
     elif mnem in _WRITE_OPS:
-        body += [clock] + _WRITE_OPS[mnem] + _write_value(mode, "v")
+        if mode in _ZERO_PAGE:
+            body += [clock] + _WRITE_OPS[mnem] + _write_value(mode, "v")
+        else:
+            body += [f"self.clock += {cycles - 1}"] + _WRITE_OPS[mnem] + \
+                _write_value(mode, "v") + ["self.clock += 1"]
         clock = None
     elif mnem in _RMW_OPS:
-        body += _read_value(mode) + [clock] + _RMW_OPS[mnem] + _write_value(mode, "w")
+        if mode in _ZERO_PAGE:
+            body += _read_value(mode) + [clock] + _RMW_OPS[mnem] + _write_rmw(mode)
+        else:
+            body += [f"self.clock += {cycles - 3}"] + _read_value(mode) + _RMW_OPS[mnem] + \
+                _write_rmw(mode)
         clock = None
     else:
         raise AssertionError(f"unhandled {mnem} {mode}")

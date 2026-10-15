@@ -17,7 +17,10 @@ how many popular tunes they unlock.
 | B2: preset volume 15 for PSIDs | one line | 2 silent tunes, and the start click on 34 more | fixed |
 | B1: follow CIA timer writes during play | small, in `C64.play_frame` | 6 tunes with wrong tempo, including #1 Wizball | fixed |
 | F2 + F1: RSID environment | large: CIA/VIC interrupts, continuous CPU | 14 RSID tunes | done |
-| O1: VIC bad lines | medium | busy-loop timing (some RSID samples) | open |
+| B3: read-modify-write dummy write | small, in the CPU | BMX Kidz, Nightdawn (garbled music) | fixed |
+| B4: cycle-exact I/O timing | small, in the CPU | Savage (hung after 50 s) | fixed |
+| F3: 8580 digi boost | small | `$D418` samples on the 8580 | done |
+| O1: VIC bad lines | medium | RSID busy-loop timing | done (sprite DMA open) |
 | O2: speed of sample-playing RSIDs | medium | headroom for live playback | open |
 | M1: survey of real MODs | medium | confidence in the ProTracker replayer | open |
 
@@ -181,25 +184,78 @@ How the fixes were verified:
   affected tunes play: Robocop as described under F1, and To Be on Top
   with its samples.
 
+### B3. Read-modify-write instructions skipped their dummy write (fixed)
+
+* **Affects:** #60 BMX Kidz, #68 Nightdawn, and #23 The Way of the
+  Exploding Fist (other subtunes). Reported by ear: "sounds awful".
+* **Cause:** these tunes acknowledge their raster interrupt with
+  `INC $D019` (BMX Kidz, Exploding Fist) or `LSR $D019` (Nightdawn). A real
+  6502 read-modify-write first writes the unmodified value back and then
+  the result, and it is that first write (`$F1`) that clears the raster
+  flag. numsid wrote only the result (`$F2` or `$78`), so the flag stayed
+  set and the IRQ re-fired right after `RTI`. The music routine then ran
+  about 12 times per frame (593 IRQs/s) instead of once.
+* **Fix:** RMW instructions on I/O addresses perform both writes, on their
+  real cycles. BMX Kidz now gets 50 IRQs/s, and as a side effect renders
+  at 4.5× real time instead of 1.9×.
+
+### B4. I/O accesses happened on the wrong cycle of an instruction (fixed)
+
+* **Affects:** #57 Savage. Reported by ear: it hung after about 52 s,
+  sustaining one note forever.
+* **Cause:**
+  * Savage restarts a drum sample by writing the new CIA 2 rate low byte,
+    then high byte, sometimes while the previous sample is still playing.
+  * At 49.08 s the timer underflows 3 cycles after the low-byte write. It
+    reloads with a mix of old and new latch (`$000D`), and the NMIs come
+    every 14 cycles.
+  * Whether such a storm nests, sinking the stack until it overflows and
+    the CPU runs into a JAM opcode, or just plays out the old sample in a
+    few milliseconds depends on the exact cycle of the handler's
+    `LDA $DD0D`.
+  * numsid performed every absolute read on an instruction's *first*
+    cycle, 3 cycles early, and every write 1 cycle late.
+* **Fix:**
+  * The CPU now does memory I/O on the real cycle: reads and writes on an
+    instruction's last cycle; read-modify-write reads, writes back and
+    writes on its last three.
+  * Savage now plays its full length with a steady stack.
+  * For the PSIDs, SID writes simply land one cycle earlier. Their loudness
+    envelopes are unchanged: the median difference is 0.00 dB for all 86.
+
+### F3. 8580 "digi boost" (done)
+
+* **Reported:** samples missing in Savage and Turbo Outrun on the 8580.
+* **Cause:** `$D418` sample playback works because the volume register
+  scales the 6581's large DC offset. The 8580 has almost none, so on a real
+  C64C these samples are nearly inaudible. numsid reproduced that
+  faithfully.
+* **Change:** like sidplayfp's digi boost, the 8580 now feeds a constant
+  level into the mixer, equal to that of three silent 6581 voices.
+  Samples then play at the same loudness as on the 6581 (Turbo Outrun
+  0.084 vs 0.094 RMS). `--no-digiboost` restores the authentic
+  near-silence.
+
 ## Open
 
-### O1. VIC bad lines and sprite DMA are not emulated
+### O1. VIC bad lines (done for RSIDs) and sprite DMA (open)
 
-* **Symptom:** on a real C64 the VIC halts the CPU for about 40 cycles on
-  every eighth visible raster line (and for sprites), roughly 5% of all
-  cycles. numsid never does. Interrupt-driven music is unaffected, but
-  anything timed by busy loops runs slightly fast, such as sample playback
-  in a main loop.
-* **Candidates:** Arkanoid's detected length is 115.7 s against HVSC's
-  137 s (its music IRQ rate is exactly right), and Savage's is 52.3 s
-  against 169 s. Both may also be loop-detection artefacts. Verify by ear.
-* **Fix:** stall the CPU on bad lines (when the display is enabled) and
-  for active sprites, using the VIC registers.
+* **Done:** in the RSID machine the CPU is now halted for 43 cycles on each
+  bad line (lines `$30-$F7` matching the vertical scroll, while the display
+  is on), about 5.5% of all cycles, as on a real C64. A test checks that
+  share. PSIDs are called as before.
+* **Open:** sprite DMA, which steals a few more cycles per line while
+  sprites are shown.
+* Arkanoid's notes end at about 113 s against HVSC's 137 s. It was
+  confirmed by ear to play correctly, so the remaining time is presumably
+  a sample-only ending, which the note-based length detection can't see.
+  (Savage's 52.3 s turned out to be the hang fixed by B4.)
 
 ### O2. Sample-playing RSIDs render at only about 2× real time
 
-* **Affects:** #60 BMX Kidz and #68 Nightdawn (about 1.9×), Giana Sisters,
-  To Be on Top and Dulcedo Cogitationis (about 2.5×).
+* **Affects:** Giana Sisters (2.3×), #68 Nightdawn (2.4×), To Be on Top
+  and Dulcedo Cogitationis (about 2.5×). BMX Kidz improved to 4.5× once
+  B3 removed its IRQ storm.
 * **Cause:** a CIA 2 NMI at 4-7 kHz means thousands of interrupt entries
   and handler runs in Python per second. Each `$D418` write also starts a
   new mixer segment.
@@ -239,7 +295,7 @@ How the fixes were verified:
 
 ## Compatibility table
 
-**Summary:** 98 work, 2 work but need checking by ear, 0 are broken. Results include the fixes for B1, B2, F1 and F2.
+**Summary:** 100 of 100 work. Results include all fixes up to B4/F3. Tunes marked as heard were played during the original survey, before the later fixes; Arkanoid, Savage, BMX Kidz and Nightdawn were confirmed by ear afterwards, on both chips.
 
 | # | Tune | Composer | Result | Notes |
 |--:|------|----------|--------|-------|
@@ -257,7 +313,7 @@ How the fixes were verified:
 | 12 | Last Ninja 2 | Matt Gray | ✅ works | heard 30 s in the survey |
 | 13 | Mutants | Fred Gray | ✅ works | quieter than most tunes (mostly triangle); verify by ear; heard 30 s in the survey |
 | 14 | Knucklebusters | Rob Hubbard | ✅ works |  |
-| 15 | Arkanoid | Martin Galway | ⚠️ works, with defects | RSID, plays (F1); length 115.7 s vs HVSC 137 s, verify by ear (O1) |
+| 15 | Arkanoid | Martin Galway | ✅ works | RSID, plays (F1); confirmed by ear (6581 and 8580) |
 | 16 | Crazy Comets | Rob Hubbard | ✅ works |  |
 | 17 | Auf Wiedersehen Monty | Rob Hubbard & Ben Daglish | ✅ works |  |
 | 18 | The Great Giana Sisters | Chris Hülsbeck | ✅ works | RSID, plays with NMI samples (F1) |
@@ -265,7 +321,7 @@ How the fixes were verified:
 | 20 | Ghosts'n Goblins | Mark Cooksey | ✅ works |  |
 | 21 | Nemesis the Warlock | Rob Hubbard | ✅ works |  |
 | 22 | Green Beret | Martin Galway | ✅ works |  |
-| 23 | The Way of the Exploding Fist | Neil Brennan | ✅ works | RSID (F1); start song is a 3 s jingle, as in HVSC |
+| 23 | The Way of the Exploding Fist | Neil Brennan | ✅ works | RSID (F1); start song is a 3 s jingle; IRQ acknowledge fixed by B3 |
 | 24 | Platoon | Jonathan Dunn | ✅ works |  |
 | 25 | R-type | Chris Hülsbeck & Ramiro Vaca | ✅ works |  |
 | 26 | Lightforce | Rob Hubbard | ✅ works |  |
@@ -299,10 +355,10 @@ How the fixes were verified:
 | 54 | Driller | Matt Gray | ✅ works |  |
 | 55 | Times of Lore | Martin Galway | ✅ works | fixed by B1 (2 calls per frame) |
 | 56 | One Man & His Droid | Rob Hubbard | ✅ works |  |
-| 57 | Savage | Jeroen Tel / Maniacs of Noise | ⚠️ works, with defects | RSID, plays (F1); length 52.3 s vs HVSC 169 s, verify by ear |
+| 57 | Savage | Jeroen Tel / Maniacs of Noise | ✅ works | RSID, plays with NMI samples (F1); used to hang after ~50 s, fixed by B4; confirmed by ear (6581 and 8580) |
 | 58 | ACE II | Rob Hubbard | ✅ works |  |
 | 59 | Thrust | Rob Hubbard | ✅ works |  |
-| 60 | BMX Kidz | Rob Hubbard & Jori Olkkonen | ✅ works | RSID, plays with NMI samples (F1); ~2x real time (O2) |
+| 60 | BMX Kidz | Rob Hubbard & Jori Olkkonen | ✅ works | RSID, plays with NMI samples (F1); garbled music fixed by B3; confirmed by ear (6581 and 8580) |
 | 61 | Kinetix | Jeroen Tel / Maniacs of Noise | ✅ works |  |
 | 62 | Scroll Machine | Jori Olkkonen (Yip) | ✅ works |  |
 | 63 | The Baby of Can Guru | Chris Hülsbeck | ✅ works | fixed by B1 (59.2 Hz) |
@@ -310,7 +366,7 @@ How the fixes were verified:
 | 65 | Gauntlet III | Tim & Geoff Follin | ✅ works |  |
 | 66 | Synth Sample | Georg Feil | ✅ works | PSID with its own IRQ handler; NTSC; `$D418` written 3×/frame |
 | 67 | Grand Prix Circuit | Kris Hatlelid | ✅ works | RSID, plays (F1) |
-| 68 | Nightdawn | Johannes Bjerregaard | ✅ works | RSID, plays with NMI samples (F1); ~2x real time (O2) |
+| 68 | Nightdawn | Johannes Bjerregaard | ✅ works | RSID, plays with NMI samples (F1); garbled music fixed by B3; confirmed by ear (6581 and 8580) |
 | 69 | Scumball | Tim Follin | ✅ works |  |
 | 70 | R.I.S.K. | Wally Beben | ✅ works |  |
 | 71 | Rocky Star | Kim Christensen (Future Freak) | ✅ works | RSID, plays (F1) |
