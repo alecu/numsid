@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-r", "--rate", type=int, default=44100, help="sample rate (default 44100)")
     ap.add_argument("-g", "--gain", type=float, default=1.0, help="output gain (default 1.0)")
     ap.add_argument("--no-filter", action="store_true", help="bypass the SID filter")
+    ap.add_argument("--no-digiboost", action="store_true",
+                    help="8580: leave $D418 samples nearly inaudible, as on a real C64C")
     ap.add_argument("--wav", metavar="FILE", help="render to a WAV file instead of playing")
     ap.add_argument("--video", metavar="FILE",
                     help="render the visualiser + audio to an MP4 (needs ffmpeg); length "
@@ -60,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     visual = args.video or args.screenshot or not (args.wav or args.headless)
     player = Player(tune, song, sample_rate=args.rate, model=args.model,
                     filter_enabled=not args.no_filter, gain=args.gain,
+                    digi_boost=not args.no_digiboost,
                     scope_rate=44100 if visual else 0)
     for v in filter(None, args.mute.split(",")):
         player.sid.mute[int(v) - 1] = True

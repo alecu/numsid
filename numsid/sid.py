@@ -275,7 +275,7 @@ class Voice:
 
 class SID:
     def __init__(self, clock: int = 985248, sample_rate: int = 44100, model: str = "6581",
-                 *, filter_enabled: bool = True, scope_rate: int = 0):
+                 *, filter_enabled: bool = True, scope_rate: int = 0, digi_boost: bool = True):
         if model not in ("6581", "8580"):
             raise ValueError("model must be '6581' or '8580'")
         self.clock = clock
@@ -292,8 +292,13 @@ class SID:
         else:
             self.wave_zero = 0x800
             self.voice_dc = 0
-            self.mixer_dc = 0
+            # The 8580 has almost no DC offset, so samples played by writing
+            # the volume register are nearly inaudible on a real C64C.  Like
+            # sidplayfp's "digi boost", feed a constant level into the mixer
+            # instead (that of three silent 6581 voices) so they come through.
+            self.mixer_dc = 3 * 0x800 * 0xFF - 0xFFF * 0xFF // 18 if digi_boost else 0
             self.f0 = _cutoff_table(F0_POINTS_8580, sample_rate)
+        self.digi_boost = digi_boost
         self.resampler = Resampler(clock, sample_rate, channels=2)
         # full scale: three voices at maximum amplitude and volume 15
         self.scale = 1.0 / (4095 * 255 * 3 * 15)

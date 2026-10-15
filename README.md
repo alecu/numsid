@@ -42,6 +42,7 @@ the same way. Tests that need the tune are skipped when it is missing.
 .venv/bin/python -m numsid sids/Commando.sid --headless      # audio only, Ctrl-C stops
 .venv/bin/python -m numsid sids/Commando.sid --wav commando.wav --seconds 240
 .venv/bin/python -m numsid sids/Commando.sid --model 8580 --no-filter --gain 1.5
+.venv/bin/python -m numsid sids/Commando.sid --model 8580 --no-digiboost  # authentic C64C samples
 .venv/bin/python -m numsid sids/Commando.sid --info          # header only
 ```
 
@@ -134,6 +135,8 @@ flowchart TD
   leakage) with the parameters fitted by the libsidplayfp project.
 * **Mixer and filter**: per-voice routing, voice-3-off, and volume applied per
   cycle, so `$D418` sample playback works. The 6581 DC offsets are modelled.
+  On the 8580, which has almost no offset (such samples are nearly silent on
+  a real C64C), a sidplayfp-style "digi boost" is on by default.
   Cutoff curves come from measurements of real 6581 and 8580 chips.
 * **Output**: a two-stage polyphase resampler (Kaiser windowed sinc,
   ≥80 dB alias rejection, flat to 19 kHz) with the C64's ~16 kHz RC low-pass
@@ -160,11 +163,10 @@ subtunes.
 
 [ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
 with a compatibility table for the HVSC Top 100: all 100 now play, RSID files
-included. Two RSIDs still need checking by ear.
+included.
 
-* No VIC bad lines or sprite DMA, so the CPU never loses the cycles the
-  video chip steals on a real C64. Tunes that time things with busy loops
-  instead of interrupts run slightly fast.
+* No sprite DMA: RSID tunes lose the bad-line cycles the VIC steals, but
+  not the few extra cycles taken while sprites are shown.
 * No BASIC or character ROM, and only a stand-in KERNAL. Tunes that call
   real ROM routines get a harmless return.
 * One SID chip (no 2SID/3SID tunes).

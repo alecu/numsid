@@ -17,15 +17,18 @@ from .sid import SID
 class Player:
     def __init__(self, tune: psid.PSIDFile | str | Path, song: int | None = None, *,
                  sample_rate: int = 44100, model: str | None = None,
-                 filter_enabled: bool = True, gain: float = 1.0, scope_rate: int = 0):
+                 filter_enabled: bool = True, gain: float = 1.0, scope_rate: int = 0,
+                 digi_boost: bool = True):
         self.tune = tune if isinstance(tune, psid.PSIDFile) else psid.load(tune)
         self.sample_rate = sample_rate
         self.model = model or self.tune.preferred_model
         self.filter_enabled = filter_enabled
         self.gain = gain
         self.scope_rate = scope_rate
+        self.digi_boost = digi_boost
         self.sid = SID(self.tune.clock, sample_rate, self.model,
-                       filter_enabled=filter_enabled, scope_rate=scope_rate)
+                       filter_enabled=filter_enabled, scope_rate=scope_rate,
+                       digi_boost=digi_boost)
         self.select(song or self.tune.start_song)
 
     def set_model(self, model: str) -> None:
@@ -33,7 +36,8 @@ class Player:
         old = self.sid
         self.model = model
         self.sid = SID(self.tune.clock, self.sample_rate, model,
-                       filter_enabled=old.filter_enabled, scope_rate=self.scope_rate)
+                       filter_enabled=old.filter_enabled, scope_rate=self.scope_rate,
+                       digi_boost=self.digi_boost)
         self.sid.mute = old.mute
         self.select(self.song)
 
