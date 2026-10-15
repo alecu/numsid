@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from numsid import psid
-from numsid.player import Player, write_wav
+from numsid.player import SIDPlayer as Player, write_wav
 
 TUNE = Path(__file__).resolve().parent.parent / "sids" / "Commando.sid"
 pytestmark = pytest.mark.skipif(not TUNE.exists(), reason="sids/Commando.sid not present")

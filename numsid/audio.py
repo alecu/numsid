@@ -1,6 +1,6 @@
 """Real-time output through pyglet's media player.
 
-pyglet's audio worker thread pulls PCM from `SIDSource.get_audio_data`,
+pyglet's audio worker thread pulls PCM from `PlayerSource.get_audio_data`,
 which runs the emulator just in time.  The emulator renders several times
 faster than real time, so that thread stays well ahead of the sound card.
 """
@@ -23,10 +23,10 @@ def set_latency(seconds: float) -> None:
     AbstractAudioPlayer.audio_buffer_length = seconds
 
 
-class SIDSource(StreamingSource):
+class PlayerSource(StreamingSource):
     def __init__(self, player: Player):
         self.player = player
-        self.audio_format = AudioFormat(channels=1, sample_size=16,
+        self.audio_format = AudioFormat(channels=player.channels, sample_size=16,
                                         sample_rate=player.sample_rate)
         self.lock = threading.RLock()     # guards the emulator against the UI thread
         self.render_time = 0.0            # seconds spent emulating (for the CPU meter)
@@ -36,10 +36,10 @@ class SIDSource(StreamingSource):
         return True
 
     def seek(self, timestamp: float) -> None:
-        pass                              # a SID tune can't be rewound cheaply
+        pass                              # an emulated tune can't be rewound cheaply
 
     def get_audio_data(self, num_bytes, compensation_time=0.0):
-        n = int(num_bytes) // 2
+        n = int(num_bytes) // (2 * self.player.channels)
         if n <= 0:
             return None
         t0 = time.perf_counter()
@@ -57,7 +57,7 @@ class LivePlayback:
     def __init__(self, player: Player, latency: float = 0.4):
         set_latency(latency)
         self.player = player
-        self.source = SIDSource(player)
+        self.source = PlayerSource(player)
         self.media = pyglet.media.Player()
         self.media.queue(self.source)
 
@@ -75,9 +75,10 @@ class LivePlayback:
         """Seconds of the current song that have been heard."""
         return self.media.time
 
-    def select(self, song: int) -> None:
+    def skip(self, direction: int) -> None:
+        """Next or previous subtune (SID) or order position (MOD)."""
         with self.source.lock:
-            self.player.select(song)
+            self.player.skip(direction)
         self.media.seek(0.0)              # flush audio already queued for the old song
 
     def cpu_load(self) -> float:
@@ -91,9 +92,8 @@ def play_headless(player: Player, seconds: float | None = None, latency: float =
     """Play without a window, printing progress; Ctrl-C stops."""
     live = LivePlayback(player, latency)
     live.play()
-    tune = player.tune
-    print(f"Playing {tune.name} - {tune.author}, song {player.song}/{tune.songs} "
-          f"({player.model}). Ctrl-C to stop.")
+    print(f"Playing {player.title} - {player.subtitle} ({player.chip_line()}). "
+          "Ctrl-C to stop.")
     try:
         while seconds is None or live.position < seconds:
             time.sleep(0.25)

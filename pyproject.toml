@@ -1,7 +1,7 @@
 [project]
 name = "numsid"
 version = "0.1.0"
-description = "Commodore 64 SID player: 6502 CPU and MOS 6581/8580 SID emulated in Python + numpy"
+description = "C64 SID and Amiga MOD player: 6502 + SID, ProTracker + Paula, emulated in Python + numpy"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.26", "pyglet>=2.0"]
