@@ -12,8 +12,9 @@ import argparse
 import sys
 import time
 
-from . import modfile
-from .player import load_tune, open_player, write_wav
+from .amiga import modfile
+from .player import write_wav
+from .tunes import load_tune, open_player
 
 MODELS = ("6581", "8580", "A500", "A1200")
 
@@ -105,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         screenshot(player, args.screenshot, args.at)
         print(f"wrote {args.screenshot}")
     elif args.video:
-        from .player import song_length
+        from .tunes import song_length
         from .record import record_video
         seconds = args.seconds
         if not seconds:

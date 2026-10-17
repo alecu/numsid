@@ -3,7 +3,7 @@ import random
 import numpy as np
 import pytest
 
-from numsid.sid import SID, noise_table, NOISE_PERIOD, RATE_PERIOD
+from numsid.c64.sid import SID, noise_table, NOISE_PERIOD, RATE_PERIOD
 from reference_sid import run_reference, RefVoice
 
 

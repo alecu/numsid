@@ -16,8 +16,7 @@ from pyglet import shapes
 from pyglet.gl import GL_TRIANGLES, glClearColor
 from pyglet.window import key
 
-from .player import Player
-from .sid import SCOPE_SIZE
+from .player import SCOPE_SIZE, Player
 
 FONT = "Menlo"
 BG = (15, 17, 26)

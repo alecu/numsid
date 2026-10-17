@@ -5,11 +5,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from numsid import modfile, protracker
-from numsid.modfile import ModFileError
-from numsid.paula import BIN, Channel, _lowpass_biquad
-from numsid.player import ModPlayer, load_tune, open_player, song_length
-from numsid.protracker import PERIODS, NullPaula, ProTracker
+from numsid.amiga import modfile, protracker
+from numsid.amiga.modfile import ModFileError
+from numsid.amiga.paula import BIN, Channel, _lowpass_biquad
+from numsid.amiga.player import ModPlayer
+from numsid.amiga.protracker import PERIODS, NullPaula, ProTracker
+from numsid.tunes import load_tune, open_player, song_length
 from reference_paula import RefChannel
 
 AXELF = Path(__file__).resolve().parent.parent / "mods" / "axelf.mod"

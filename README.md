@@ -109,15 +109,22 @@ played (pattern loops aside), or when it hits `F00`.
 
 ## How it works
 
+The code is split by machine. `numsid/c64/` holds the C64: the 6502, the
+machine around it, the SID and the SID player. `numsid/amiga/` holds the
+Amiga: the MOD loader, the ProTracker replayer, Paula and the MOD player.
+What both share sits in `numsid/` itself: the `Player` base class, format
+detection (`tunes.py`), resampling, audio output, the visualiser and video
+recording.
+
 ```mermaid
 flowchart TD
-    file[".sid file"] --> psid["<b>psid.py</b><br/>parse the PSID header and data"]
-    psid --> c64["<b>c64.py</b><br/>RAM, ROM banking, KERNAL stand-in<br/>PSID: init, then play calls<br/>RSID: a free-running machine"]
-    c64 <--> cpu["<b>cpu6502.py</b><br/>runs the tune's own 6502 code"]
-    c64 <--> chips["<b>cia.py</b>, <b>vic.py</b><br/>timers, raster counter<br/>IRQ and NMI sources"]
+    file[".sid file"] --> psid["<b>c64/psid.py</b><br/>parse the PSID header and data"]
+    psid --> c64["<b>c64/machine.py</b><br/>RAM, ROM banking, KERNAL stand-in<br/>PSID: init, then play calls<br/>RSID: a free-running machine"]
+    c64 <--> cpu["<b>c64/cpu6502.py</b><br/>runs the tune's own 6502 code"]
+    c64 <--> chips["<b>c64/cia.py</b>, <b>c64/vic.py</b><br/>timers, raster counter<br/>IRQ and NMI sources"]
     cpu -- "writes to $D400-$D7FF,<br/>tagged with their CPU cycle" --> voices
 
-    subgraph sid ["sid.py · cycle by cycle"]
+    subgraph sid ["c64/sid.py · cycle by cycle"]
         voices["3 voices<br/>accumulator → waveform × envelope"] --> mixer["mixer<br/>routing, volume, DC offsets"]
     end
 
@@ -134,12 +141,12 @@ flowchart TD
     gui --> rec
 ```
 
-* **CPU (`cpu6502.py`)**: every documented 6502 opcode plus the common
+* **CPU (`c64/cpu6502.py`)**: every documented 6502 opcode plus the common
   "illegal" ones, NMOS decimal mode, cycle counts including page-crossing and
   branch penalties. Each opcode is a generated Python closure with its
   addressing mode inlined. Commando's player costs under 10 ms of Python per
   second of music.
-* **Machine (`c64.py`, `cia.py`, `vic.py`, `kernal.py`)**:
+* **Machine (`c64/machine.py`, `c64/cia.py`, `c64/vic.py`, `c64/kernal.py`)**:
   * **PSID tunes:** init is called once and play every frame, or on every
     CIA 1 timer A underflow for CIA-timed songs. The timer model follows the
     latch, force-load and stop/start writes a play routine makes.
@@ -184,11 +191,11 @@ as described in its documentation and comments. All code here is new.
 
 ```mermaid
 flowchart TD
-    file[".mod file"] --> mod["<b>modfile.py</b><br/>samples, order list, patterns<br/>sample data laid out as chip RAM"]
-    mod --> pt["<b>protracker.py</b><br/>ProTracker 2.3D replay routine<br/>one tick per CIA timer interrupt"]
+    file[".mod file"] --> mod["<b>amiga/modfile.py</b><br/>samples, order list, patterns<br/>sample data laid out as chip RAM"]
+    mod --> pt["<b>amiga/protracker.py</b><br/>ProTracker 2.3D replay routine<br/>one tick per CIA timer interrupt"]
     pt -- "register writes:<br/>location, length, period,<br/>volume, DMA on/off, LED" --> ch
 
-    subgraph paula ["paula.py · exact to the colour clock"]
+    subgraph paula ["amiga/paula.py · exact to the colour clock"]
         ch["4 DMA channels<br/>byte held for period colour clocks,<br/>block reload from the latches"] --> pan["panning<br/>1 + 4 left, 2 + 3 right"]
     end
 
@@ -198,7 +205,7 @@ flowchart TD
     hp --> out["live playback, WAV, video"]
 ```
 
-* **Replayer (`protracker.py`)**: ProTracker 2.3D's routine, which most MODs
+* **Replayer (`amiga/protracker.py`)**: ProTracker 2.3D's routine, which most MODs
   were written for. It runs as a CIA interrupt (`1773447 / BPM` timer
   cycles, 50 Hz at 125 BPM), reads a row every `speed` ticks, and runs the
   effects in between. It writes Paula's registers the way the 68000 code
@@ -214,7 +221,7 @@ flowchart TD
   The behaviour follows 8bitbubsy's [pt2-clone](https://github.com/8bitbubsy/pt2-clone),
   a faithful port of the original code. The period, vibrato and funk tables
   come from it too.
-* **Paula (`paula.py`)**: each channel plays its block from chip RAM, a byte
+* **Paula (`amiga/paula.py`)**: each channel plays its block from chip RAM, a byte
   per `period` colour clocks (3,546,895 Hz, PAL), and reloads the location
   and length latches when the block ends. That is how loops work, and how a
   sample swap happens. Period and volume take effect from the next byte.

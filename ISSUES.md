@@ -70,7 +70,7 @@ How the fixes were verified:
     routine stops the timer on entry (`$DC0E=$00`) and restarts it on
     exit (`$81`). Each period therefore stretches by the play routine's
     run time (about 20% on average), which numsid doesn't model.
-* **Fix:** a model of the 6526 timers (`numsid/cia.py`) now schedules
+* **Fix:** a model of the 6526 timers (`numsid/c64/cia.py`) now schedules
   CIA-timed play calls from timer A's actual next underflow. Writes made by
   play behave as on the chip:
   * a new latch takes effect at the next reload,

@@ -2,9 +2,9 @@
 
 import pytest
 
-from numsid.c64 import C64
-from numsid.kernal import KERNAL
-from numsid.psid import PSIDFile
+from numsid.c64.kernal import KERNAL
+from numsid.c64.machine import C64
+from numsid.c64.psid import PSIDFile
 
 PAL = 985248
 
