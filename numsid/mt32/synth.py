@@ -18,6 +18,7 @@ not documented, and this first version is a model, not an emulation:
   about 1 ms - 20 s on a log scale.
 * Structures 1/8 and 6/9 are treated alike (both mix their pair); 2 ring
   modulates the second partial with the first and plays both.
+* The reverb is a stand-in for the BOSS chip (see `reverb`).
 
 Control values (envelopes, LFO, pitch) update every BLOCK samples and are
 interpolated in between.  The output is stereo at the MT-32's 32 kHz.
@@ -35,6 +36,7 @@ from ..player import SCOPE_SIZE
 from ..resample import Resampler
 from .control import ControlROM, Timbre
 from .pcm import MIDDLE_C_PITCH, PCMROM
+from .reverb import Reverb
 
 RATE = 32000
 BLOCK = 128
@@ -192,6 +194,7 @@ class Note:
     level_db: float = 0.0                        # rhythm key level etc
     pan: float | None = None                     # rhythm key pan, else the part's
     started: int = 0
+    reverb: bool = True                          # sent to the reverb
     held: bool = True                            # key down
     sustained: bool = False                      # released while the pedal was down
 
@@ -240,7 +243,7 @@ class MT32:
         self.resampler = Resampler(RATE, sample_rate, channels=2, passband=15_000.0,
                                    ext_lowpass=None)
         self.mute = [False] * 9
-        self.filter_enabled = True                # unused: no switchable filter
+        self.reverb_enabled = True
         self.scope_step = 1 if scope_rate else 0
         self.scope = np.zeros((9, SCOPE_SIZE), dtype=np.float32)
         self.scope_out = np.zeros(SCOPE_SIZE, dtype=np.float32)
@@ -252,6 +255,15 @@ class MT32:
                              if 1 <= m <= 9}
         self.reset()
 
+    @property
+    def filter_enabled(self) -> bool:
+        """The player's "filter" switch turns the reverb on and off."""
+        return self.reverb_enabled
+
+    @filter_enabled.setter
+    def filter_enabled(self, on: bool) -> None:
+        self.reverb_enabled = on
+
     def reset(self) -> None:
         self.parts = [Part() for _ in range(9)]
         for i, part in enumerate(self.parts[:8]):
@@ -261,6 +273,7 @@ class MT32:
             if self.gm:
                 part.bend_range = 2
         self.t = 0
+        self.reverb = Reverb()
         self.resampler.reset()
         self.out: deque = deque()
         self.out_len = 0
@@ -311,7 +324,7 @@ class MT32:
 
     def note_on(self, part: int, key: int, velocity: int) -> None:
         p = self.parts[part]
-        level, pan, pitch_key = 0.0, None, key
+        level, pan, pitch_key, reverb = 0.0, None, key, True
         if part == RHYTHM:
             if self.gm:
                 key2 = self.maps.gm_drum_key(key)
@@ -325,6 +338,7 @@ class MT32:
             level = (setup.level - 100) * LEVEL_DB
             pan = setup.pan / 14
             pitch_key = 60
+            reverb = setup.reverb
         else:
             timbre = p.timbre
         for n in p.notes:                        # a retriggered key cuts the old note
@@ -341,7 +355,8 @@ class MT32:
                 continue
             kind = STRUCTURES[timbre.structure[i // 2]][i % 2]
             partials.append(self._partial(params, kind, timbre, pitch_key, velocity))
-        p.notes.append(Note(part, key, pitch_key, velocity, timbre, partials, level, pan, self.t))
+        p.notes.append(Note(part, key, pitch_key, velocity, timbre, partials, level, pan,
+                            self.t, reverb))
 
     def note_off(self, part: int, key: int) -> None:
         p = self.parts[part]
@@ -432,6 +447,7 @@ class MT32:
     def _render(self, n: int) -> None:
         left = np.zeros(n, dtype=np.float32)
         right = np.zeros(n, dtype=np.float32)
+        send = np.zeros((2, n), dtype=np.float32)
         ring = np.arange(self.t, self.t + n) % SCOPE_SIZE if self.scope_step else None
         for i, part in enumerate(self.parts):
             mix = None
@@ -439,6 +455,8 @@ class MT32:
                 y = self._note(part, note, n)
                 if y is not None:
                     mix = y if mix is None else mix + y
+                    if note.reverb and not self.mute[i]:
+                        send += y
             part.notes = [nt for nt in part.notes if not nt.finished]
             if ring is not None:
                 self.scope[i, ring] = 0.0 if mix is None else np.sum(mix, axis=0) * 0.5
@@ -446,6 +464,10 @@ class MT32:
                 continue
             left += mix[0]
             right += mix[1]
+        if self.reverb_enabled:
+            wl, wr = self.reverb.process(send[0], send[1])
+            left += wl
+            right += wr
         a, b = self.resampler.process([left, right], n)
         if len(a):
             chunk = np.stack([a, b], axis=1).astype(np.float32)

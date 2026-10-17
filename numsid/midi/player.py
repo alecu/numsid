@@ -40,7 +40,12 @@ class MidiPlayer(Player):
         self.synth = MT32(control.parse(cblob, cinfo), pcm.PCMROM(pblob, cblob, cinfo),
                           sample_rate, scope_rate=scope_rate, gm=gm,
                           channel_map=cmap)
+        self.synth.reverb_enabled = filter_enabled
         self.select(start)
+
+    @property
+    def help(self) -> str:
+        return super().help.replace("F filter", "F reverb")
 
     @property
     def chip(self):
@@ -83,7 +88,8 @@ class MidiPlayer(Player):
         mute = self.synth.mute
         at = self.position
         self.__init__(self.tune, at, sample_rate=self.sample_rate, model=model,
-                      gain=self.gain, scope_rate=self.scope_rate)
+                      filter_enabled=self.synth.reverb_enabled, gain=self.gain,
+                      scope_rate=self.scope_rate)
         self.synth.mute = mute
 
     def _step(self) -> None:
@@ -104,7 +110,9 @@ class MidiPlayer(Player):
 
     def chip_line(self) -> str:
         mode = "GM mapped" if self.synth.gm else "native"
-        return f"Roland {self.rom_info.model.split()[0]} {self.rom_info.version} · {mode} · 32 kHz"
+        reverb = "reverb on" if self.synth.reverb_enabled else "reverb off"
+        return (f"Roland {self.rom_info.model.split()[0]} {self.rom_info.version} · {mode} · "
+                f"{reverb} · 32 kHz")
 
     def readout(self, state) -> Readout:
         if state is None:

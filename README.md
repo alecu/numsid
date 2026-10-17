@@ -102,7 +102,8 @@ parts and the rhythm part.
 
 The synthesis is a first version: the sounds come from the real ROM data,
 but how the MT-32's LA32 chip shapes them is modelled, not yet emulated,
-and there is no reverb yet. See the [plan](docs/midi-plan.md).
+and the reverb is a stand-in for the real one (`F` or `--no-filter` turns
+it off). See the [plan](docs/midi-plan.md).
 
 ### Videos and screenshots
 

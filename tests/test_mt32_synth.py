@@ -116,3 +116,19 @@ def test_theme_plays_and_is_deterministic():
     p = open_player(THEME, 10)                     # start 10 s in
     assert p.readout(None).position == "0:10.0"
     assert np.abs(p.render(44100)).max() > 0.01
+
+
+def test_reverb_tail_and_blocks():
+    from numsid.mt32.reverb import HALL, ROOM, TAP_DELAY, Reverb
+    for mode in (ROOM, HALL, TAP_DELAY):
+        r = Reverb(mode, 5, 7)
+        imp = np.zeros(128, dtype=np.float32)
+        imp[0] = 1.0
+        outs = [r.process(imp, imp)[0]]
+        silence = np.zeros(128, dtype=np.float32)
+        outs += [r.process(silence, silence)[0] for _ in range(400)]
+        y = np.concatenate(outs)
+        assert not y[:200].any()                       # no direct sound, delays first
+        assert np.abs(y[3000:16000]).max() > 1e-3      # a tail
+        assert np.abs(y[-4000:]).max() < np.abs(y[3000:16000]).max()   # that decays
+    assert not Reverb(ROOM, 5, 0).process(imp, imp)[0].any()          # level 0: dry
