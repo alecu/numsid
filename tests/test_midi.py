@@ -226,3 +226,22 @@ def test_mt32_info_names_patches_when_roms_are_present(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "for MT-32" in out
     assert ("16 Harpsi 1" if factory_patch_names() else "patch 16") in out
+
+
+def test_gm_to_mt32_maps():
+    from numsid.midi import maps
+    assert len(maps.GM_TO_MT32) == 128 and all(0 <= p < 128 for p in maps.GM_TO_MT32)
+    assert maps.GM_TO_MT32[75] == 77 and maps.GM_TO_MT32[12] == 104   # pan flute, marimba
+    assert maps.gm_drum_key(36) == 36 and maps.gm_drum_key(57) == 49
+    assert maps.gm_drum_key(81) is None
+
+
+def test_channel_map_folds_gm_channels_onto_mt32_parts():
+    from numsid.midi.maps import channel_map
+    notes = [bytes([0x90 | ch, 60, 64]) for ch in (0, 0, 0, 1, 2, 9, 10, 11, 12, 13, 14, 15)]
+    m = smf.parse(smf_bytes(track(*[(0, n) for n in notes])))
+    cmap = channel_map(m)
+    assert cmap[9] == 9 and cmap[1] == 1 and cmap[2] == 2     # already on MT-32 parts: kept
+    assert cmap[0] == 3                                       # busiest takes the first free part
+    assert sorted(cmap.values()) == list(range(1, 10))        # parts 2-9 and rhythm, once each
+    assert 15 not in cmap                                     # one channel too many: dropped

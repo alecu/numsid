@@ -108,10 +108,9 @@ def channel_summary(midi, synth: str) -> list[str]:
         if e.kind == 0xC0 and e.data[0] not in programs[e.channel + 1]:
             programs[e.channel + 1].append(e.data[0])
     drums = 10
-    names = None
-    if synth == MT32:
-        from ..mt32.control import factory_patch_names
-        names = factory_patch_names()
+    from ..mt32.control import factory_patch_names
+    from .maps import GM_TO_MT32
+    names = factory_patch_names()            # None without the ROMs
     lines = []
     for ch in sorted(notes):
         if ch == drums:
@@ -120,6 +119,8 @@ def channel_summary(midi, synth: str) -> list[str]:
             what = ", ".join(f"{p} {names[p]}" if names else f"patch {p}"
                              for p in programs[ch]) or "patch (default)"
         else:
-            what = ", ".join(f"{p} {GM_PROGRAMS[p]}" for p in programs[ch]) or "0 (default)"
+            what = ", ".join(f"{p} {GM_PROGRAMS[p]}"
+                             + (f" (MT-32 {names[GM_TO_MT32[p]]})" if names else "")
+                             for p in programs[ch]) or "0 (default)"
         lines.append(f"  ch {ch:2d}  {notes[ch]:5d} notes  {what}")
     return lines
