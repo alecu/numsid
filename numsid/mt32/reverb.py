@@ -4,7 +4,9 @@ The MT-32 has four reverb modes (room, hall, plate, tap delay), a time of
 0-7 and a level of 0-7; the factory setting is room, time 5, level 3.  The
 chip itself is not emulated yet.  This is a Schroeder reverb per channel
 (parallel feedback combs, then series allpasses) with delay lengths and
-feedback chosen per mode, and tap delay as a plain feedback echo.
+feedback chosen per mode, and tap delay as a plain feedback echo.  Its
+input loses the bass below about 100 Hz and its level is set to sit about
+10 dB under the dry sound at the factory setting, as Munt's does.
 
 Every delay is longer than the block size, so a block's output only
 depends on samples from earlier blocks and each block is computed with
@@ -26,6 +28,9 @@ MODES = {
 }
 SPREAD = 17
 MIN_DELAY = 256                  # the block size must not exceed this
+HIGHPASS = 200                   # samples averaged and taken away: no boom below ~100 Hz
+WET = 0.40                       # wet level at reverb level 7 (Munt's reverb is about
+                                 # 10 dB under the dry signal at the factory setting)
 
 
 class _Delay:
@@ -51,8 +56,8 @@ class Reverb:
 
     def set(self, mode: int, time: int, level: int) -> None:
         self.mode, self.time, self.level = mode, min(max(time, 0), 7), min(max(level, 0), 7)
-        self.wet = self.level / 7 * 0.45
-        self.damp = [0.0, 0.0]
+        self.wet = self.level / 7 * WET
+        self.hist = [np.zeros(HIGHPASS, dtype=np.float32) for _ in range(2)]
         if mode == TAP_DELAY:
             self.echo = [_Delay(3200 + 1600 * self.time + c * 800) for c in range(2)]
             self.feedback = 0.3 + 0.05 * self.time
@@ -71,12 +76,14 @@ class Reverb:
             if not self.wet:
                 out.append(np.zeros(n, dtype=np.float32))
                 continue
-            # soften the input a little: the chip's reverb is dark
+            # take the bass out: less a moving average, centred
             x = x.astype(np.float32)
-            x2 = np.empty_like(x)
-            x2[0] = 0.5 * (x[0] + self.damp[c])
-            x2[1:] = 0.5 * (x[1:] + x[:-1])
-            self.damp[c] = float(x[-1])
+            h = np.concatenate([self.hist[c], x])
+            self.hist[c] = h[-HIGHPASS:]
+            c_ = np.cumsum(np.concatenate([[0.0], h]))
+            mid = h[HIGHPASS // 2:HIGHPASS // 2 + len(x)]   # in step with the average
+            x = mid - ((c_[HIGHPASS + 1:] - c_[1:len(x) + 1]) / HIGHPASS).astype(np.float32)
+            x2 = x
             if self.mode == TAP_DELAY:
                 d = self.echo[c]
                 y = d.read(n)

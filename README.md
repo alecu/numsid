@@ -100,10 +100,11 @@ instruments and drums to the closest MT-32 sounds; `--info` shows what each
 instrument becomes. In the window `←/→` skip 10 s and `1`-`9` mute the eight
 parts and the rhythm part.
 
-The synthesis is a first version: the sounds come from the real ROM data,
-but how the MT-32's LA32 chip shapes them is modelled, not yet emulated,
-and the reverb is a stand-in for the real one (`F` or `--no-filter` turns
-it off). See the [plan](docs/midi-plan.md).
+The sounds come from the real ROM data, shaped the way the MT-32's LA32
+chip was measured to shape them; MT-32 SysEx (custom timbres, patches,
+rhythm setup, reverb) is understood. The reverb is still a stand-in for
+the real one (`F` or `--no-filter` turns it off). See
+[MIDI on the MT-32](docs/mt32.md) and the [plan](docs/midi-plan.md).
 
 ### Videos and screenshots
 
@@ -143,4 +144,5 @@ included.
   recording, performance.
 * [C64 SID playback](docs/c64.md): the 6502, the machine, the SID chip.
 * [Amiga MOD playback](docs/amiga.md): the ProTracker replayer and Paula.
+* [MIDI on the MT-32](docs/mt32.md): the ROMs, and the LA32 as measured.
 * [Testing](docs/testing.md): reference models and how accuracy is checked.

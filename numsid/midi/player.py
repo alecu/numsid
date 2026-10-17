@@ -28,7 +28,7 @@ class MidiPlayer(Player):
                  roms_dir: str | Path | None = None):
         super().__init__(sample_rate, gain, scope_rate)
         from ..mt32 import control, pcm, roms
-        from ..mt32.synth import MT32
+        from ..mt32.synth import MT32 as Synth
         self.tune = tune if isinstance(tune, smf.MidiFile) else smf.load(tune)
         self.model = model or "MT-32"
         self.models = ("MT-32", "CM-32L")
@@ -37,7 +37,7 @@ class MidiPlayer(Player):
         self.synth_for, _ = detect(self.tune)
         gm = self.synth_for != MT32
         cmap = maps.channel_map(self.tune) if gm else None
-        self.synth = MT32(control.parse(cblob, cinfo), pcm.PCMROM(pblob, cblob, cinfo),
+        self.synth = Synth(control.parse(cblob, cinfo), pcm.PCMROM(pblob, cblob, cinfo),
                           sample_rate, scope_rate=scope_rate, gm=gm,
                           channel_map=cmap)
         self.synth.reverb_enabled = filter_enabled
@@ -70,7 +70,7 @@ class MidiPlayer(Player):
         self.offset = 0
         if seconds > 0:
             for e in self.sequencer.seek(int(seconds * self.synth.clock)):
-                if e.status < 0xF0:
+                if e.status <= 0xF0:
                     self.synth.message(e.status, e.data)
             # the synth's clock restarts at 0 here, so shift the song to match
             self.offset = int(seconds * self.synth.clock)
@@ -99,7 +99,7 @@ class MidiPlayer(Player):
         until = min(until, synth.t + 4096)
         synth.advance(until)
         for _, e in seq.take(until + 1):
-            if e.status < 0xF0:
+            if e.status <= 0xF0:
                 synth.message(e.status, e.data)
         parts = tuple((p.timbre.name if i < 8 and p.timbre else "rhythm",
                        len([n for n in p.notes if not n.released]),
