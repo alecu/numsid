@@ -265,7 +265,7 @@ How the fixes were verified:
 ### M1. MODs: only one real module checked end to end
 
 * **Status:** `axelf.mod` (a 15-sample SoundTracker module with no effects)
-  plays, and matches libopenmpt's timing and spectrum (see the README). Each
+  plays, and matches libopenmpt's timing and spectrum (see docs/testing.md). Each
   ProTracker effect and quirk is unit-tested against PT 2.3D's behaviour as
   pt2-clone reproduces it, but no set of real modules has been surveyed yet.
 * **Next:** run a list of well-known modules (The Mod Archive's top-rated,
