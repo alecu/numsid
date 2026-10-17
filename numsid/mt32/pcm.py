@@ -1,12 +1,20 @@
 """The PCM sample ROM and the table of waves that points into it.
 
 Samples are 16-bit big-endian words in a logarithmic sign-magnitude
-format: bit 15 is the sign, bits 14-8 the integer part of the log
-magnitude and bits 5-0 its fraction, at 16 steps per octave, so the
-range is 8 octaves (48 dB).  Bit 7 is always clear and bit 6 is set in
-nine words out of ten; neither is part of the value.  The scale was found
+format.  Bit 15 is the sign.  The log magnitude has an 8-bit integer part,
+whose top bit is in bit 6 and whose low seven bits are bits 14-8, and a
+6-bit fraction in bits 5-0.  It counts 16 steps per octave, so the range
+is 16 octaves (96 dB).  Bit 7 is always clear.
+
+This was worked out from the data.  Read as a plain 7-bit magnitude, the
+waves are smooth except for single-sample spikes of nearly full scale at
+their zero crossings, always on words with bit 6 clear; with bit 6 as the
+magnitude's top bit those samples become the near-silent ones they should
+be, and every pitched wave is free of spikes (only the noise waves, the
+cymbals and hi-hats, keep sample-to-sample jumps).  The scale was found
 by decoding with each candidate step size and keeping the one that gives
-the smoothest waveforms (16 per octave, clearly ahead of 12 or 20).
+the smoothest waveforms: 14 to 16 steps per octave fit best, and 16 makes
+the fraction 1/1024 of an octave.
 
 The control ROM holds the wave table: 4 bytes per wave, 128 waves on the
 MT-32 and 256 on the CM-32L (whose second bank is the sound effects in
@@ -58,10 +66,10 @@ class Wave:
 def decode(words: np.ndarray) -> np.ndarray:
     """Log sign-magnitude words -> float32 in [-1, 1].  The scale is offset
     so that the all-zero word, which fills the gaps between waves, is
-    silence rather than a -48 dB DC level."""
+    exact silence."""
     w = words.astype(np.int32)
-    log = ((w >> 8) & 0x7F) + (w & 0x3F) / 64.0
-    mag = (np.exp2(log / 16.0) - 1.0) / 255.0
+    log = ((w >> 6) & 1) * 128 + ((w >> 8) & 0x7F) + (w & 0x3F) / 64.0
+    mag = (np.exp2(log / 16.0) - 1.0) / 65535.0
     return np.where(w & 0x8000, -mag, mag).astype(np.float32)
 
 

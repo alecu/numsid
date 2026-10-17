@@ -2,7 +2,7 @@
 
     python -m numsid TUNE.sid                 window with scopes + live audio
     python -m numsid TUNE.mod                 the same for an Amiga MOD
-    python -m numsid TUNE.mid --info          what a MIDI file holds (playback to come)
+    python -m numsid TUNE.mid                 a MIDI file on an emulated MT-32
     python -m numsid TUNE.sid --headless      live audio only
     python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
 """
@@ -18,7 +18,7 @@ from .midi import smf
 from .player import write_wav
 from .tunes import load_tune, open_player
 
-MODELS = ("6581", "8580", "A500", "A1200")
+MODELS = ("6581", "8580", "A500", "A1200", "MT-32", "CM-32L")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,10 +27,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("tune", help="PSID/RSID file, a ProTracker/SoundTracker MOD, or a MIDI file")
     ap.add_argument("-s", "--song", type=int, help="SID subtune (default: the file's start song)")
     ap.add_argument("-p", "--pos", type=int, default=0,
-                    help="MOD order position to start at (default 0)")
+                    help="MOD order position, or MIDI start time in seconds (default 0)")
     ap.add_argument("-m", "--model", type=str.upper, choices=MODELS,
-                    help="SID chip (default: as the file recommends, else 6581) or "
-                         "Amiga (default A500)")
+                    help="SID chip (default: as the file recommends, else 6581), "
+                         "Amiga (default A500) or MIDI synth (default MT-32)")
     ap.add_argument("-r", "--rate", type=int, default=44100, help="sample rate (default 44100)")
     ap.add_argument("-g", "--gain", type=float, default=1.0, help="output gain (default 1.0)")
     ap.add_argument("--no-filter", action="store_true",
@@ -67,12 +67,16 @@ def main(argv: list[str] | None = None) -> int:
     print(tune.describe())
     if args.info:
         return 0
-    if isinstance(tune, smf.MidiFile):
-        print("numsid: MIDI playback isn't implemented yet; --info works", file=sys.stderr)
-        return 1
 
     is_mod = isinstance(tune, modfile.ModFile)
-    if is_mod:
+    is_midi = isinstance(tune, smf.MidiFile)
+    if is_midi:
+        if args.song:
+            print("numsid: a MIDI file has one song", file=sys.stderr)
+            return 1
+        start = args.pos
+        models = ("MT-32", "CM-32L")
+    elif is_mod:
         if args.song:
             print("numsid: a MOD has one song; use --pos to start at an order position",
                   file=sys.stderr)
@@ -93,11 +97,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     visual = args.video or args.screenshot or not (args.wav or args.headless)
-    player = open_player(tune, start, sample_rate=args.rate, model=args.model,
-                         filter_enabled=not args.no_filter, gain=args.gain,
-                         scope_rate=44100 if visual else 0,
-                         separation=args.separation / 100 if is_mod else None,
-                         digi_boost=None if is_mod else not args.no_digiboost)
+    try:
+        player = open_player(tune, start, sample_rate=args.rate, model=args.model,
+                             filter_enabled=not args.no_filter, gain=args.gain,
+                             scope_rate=44100 if visual else 0,
+                             separation=args.separation / 100 if is_mod else None,
+                             digi_boost=None if is_mod or is_midi else not args.no_digiboost)
+    except ValueError as exc:
+        print(f"numsid: {exc}", file=sys.stderr)
+        return 1
     for v in filter(None, args.mute.split(",")):
         if not 1 <= int(v) <= player.voices:
             print(f"numsid: --mute takes voices 1..{player.voices}", file=sys.stderr)

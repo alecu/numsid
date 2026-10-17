@@ -66,13 +66,14 @@ def test_control_rom_tables(name):
 def test_pcm_decode_format():
     import numpy as np
     from numsid.mt32.pcm import decode
-    words = np.array([0x0000, 0x8000, 0x7F3F, 0xFF3F, 0x1000, 0x1040, 0x1080 ^ 0x80], dtype=np.uint16)
+    words = np.array([0x0000, 0x8000, 0x7F7F, 0xFF7F, 0x7F3F, 0x10C0, 0x1040], dtype=np.uint16)
     out = decode(words)
     assert out[0] == 0 and out[1] == 0                     # silence, either sign
     assert out[2] == pytest.approx(1.0, abs=0.01) and out[3] == pytest.approx(-out[2])
-    assert out[4] == out[5] == out[6]                      # bits 6 and 7 are not part of the value
-    up = decode(np.array([0x2000, 0x3000], dtype=np.uint16))
-    assert (up[1] + 1 / 255) / (up[0] + 1 / 255) == pytest.approx(2.0)   # 16 steps per octave
+    assert out[4] == pytest.approx(out[2] / 256, rel=0.01) # bit 6 is the top magnitude bit
+    assert out[5] == out[6]                                # bit 7 is not part of the value
+    up = decode(np.array([0x2040, 0x3040], dtype=np.uint16))
+    assert (up[1] + 1 / 65535) / (up[0] + 1 / 65535) == pytest.approx(2.0)   # 16 steps per octave
 
 
 @needs_roms
@@ -90,6 +91,10 @@ def test_pcm_wave_table():
         assert w.start + w.length <= len(rom.samples)
     x = rom.wave(54)
     assert not x[:8].any() and np.abs(x).max() > 0.5
+    # pitched waves have no single-sample spikes at their zero crossings
+    for k in (21, 23, 31, 49):
+        y = rom.wave(k)
+        assert not np.any((np.abs(y[1:-1] - y[:-2]) > 0.5) & (np.abs(y[1:-1] - y[2:]) > 0.5))
     # a looped wave's measured period matches its pitch field
     w = rom.waves[97]
     seg = rom.wave(97)[-2048:] - rom.wave(97)[-2048:].mean()

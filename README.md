@@ -1,6 +1,6 @@
 # numsid
 
-A Commodore 64 SID and Amiga MOD music player written in Python. For SID
+A Commodore 64 SID, Amiga MOD and MIDI (on a Roland MT-32) music player written in Python. For SID
 tunes the MOS 6502 CPU runs the tune's own player code, and the MOS 6581/8580
 SID chip is synthesised cycle by cycle with numpy. For Amiga tracker modules
 a ProTracker 2.3D replay routine drives Paula, the Amiga's sound chip, which
@@ -82,6 +82,28 @@ effect, plus the song position, speed and BPM.
 ![numsid playing axelf.mod: four channel oscilloscopes with note, sample and
 volume readouts, and the stereo output mixed down](docs/screenshot-mod.png)
 
+### MIDI files on a Roland MT-32
+
+```bash
+.venv/bin/python -m numsid midi/theme.mid                    # window + live audio, stereo
+.venv/bin/python -m numsid midi/theme.mid --pos 30           # start 30 s in
+.venv/bin/python -m numsid midi/theme.mid --model CM-32L     # the CM-32L's ROMs instead
+.venv/bin/python -m numsid midi/theme.mid --info             # tracks, channels, instruments
+```
+
+Standard MIDI Files play on an emulated MT-32. It needs the MT-32's ROMs,
+which are not included: put a control ROM and a PCM ROM (for example
+`mt32_ctrl_1_07.rom` and `mt32_pcm.rom`, or MAME's split halves) in `roms/`,
+or point `$NUMSID_ROMS` at them. Files are recognised by content, so the
+names don't matter. A General MIDI file is played through a map from GM
+instruments and drums to the closest MT-32 sounds; `--info` shows what each
+instrument becomes. In the window `←/→` skip 10 s and `1`-`9` mute the eight
+parts and the rhythm part.
+
+The synthesis is a first version: the sounds come from the real ROM data,
+but how the MT-32's LA32 chip shapes them is modelled, not yet emulated,
+and there is no reverb yet. See the [plan](docs/midi-plan.md).
+
 ### Videos and screenshots
 
 ```bash
@@ -108,6 +130,7 @@ H.264 + AAC (BT.709), ready for YouTube.
 * No BASIC or character ROM, and only a stand-in KERNAL. Tunes that call
   real ROM routines get a harmless return.
 * MODs play with PAL timing and ProTracker 2.3D semantics only.
+* MIDI files play on the MT-32 only; there is no General MIDI synth yet.
 
 [ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
 with a compatibility table for the HVSC Top 100: all 100 now play, RSID files

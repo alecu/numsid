@@ -42,7 +42,12 @@ def open_player(tune, song: int | None = None, **kwargs) -> "Player":
     separation = kwargs.pop("separation", None)        # MOD only
     digi_boost = kwargs.pop("digi_boost", None)        # SID only
     if isinstance(tune, smf.MidiFile):
-        raise TuneError("MIDI playback isn't implemented yet; --info works")
+        from .midi.player import MidiPlayer
+        from .mt32.roms import RomError
+        try:
+            return MidiPlayer(tune, float(song or 0), **kwargs)
+        except RomError as exc:
+            raise TuneError(str(exc)) from None
     if isinstance(tune, modfile.ModFile):
         if separation is not None:
             kwargs["separation"] = separation
@@ -58,6 +63,8 @@ def song_length(tune, song: int | None = None, max_seconds: float = 600.0, **kwa
     its loop, or (seconds, "end") for one that stops.  None if neither is
     found within `max_seconds`.  For a MOD, `song` is the starting order
     position, and the replayer's own bookkeeping gives an exact answer."""
+    if isinstance(tune, smf.MidiFile):
+        return tune.length + 2.0, "end"          # let the last notes ring
     if isinstance(tune, modfile.ModFile):
         return protracker.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     return sid_song_length(tune, song or tune.start_song, max_seconds, **kwargs)

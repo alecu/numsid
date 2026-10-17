@@ -204,9 +204,14 @@ def test_load_tune_and_info(tmp_path, capsys):
     assert main([str(path), "--info"]) == 0
     out = capsys.readouterr().out
     assert "format 1, 1 tracks" in out and "73 Flute" in out and "General MIDI" in out
-    assert main([str(path), "--wav", str(tmp_path / "x.wav")]) == 1
-    with pytest.raises(TuneError):
-        open_player(load_tune(path))
+    from numsid.mt32.control import factory_patch_names
+    wav = tmp_path / "x.wav"
+    if factory_patch_names():                      # the ROMs are there: it plays
+        assert main([str(path), "--wav", str(wav), "--seconds", "1"]) == 0 and wav.exists()
+    else:
+        assert main([str(path), "--wav", str(wav)]) == 1
+        with pytest.raises(TuneError):
+            open_player(load_tune(path))
 
 
 @needs_theme

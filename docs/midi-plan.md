@@ -1,7 +1,7 @@
 # Plan: General MIDI and MT-32 playback
 
-Status: milestone 1 (parsing, detection, `--info`) is done; the rest is
-proposal. The goal is to play Standard MIDI Files the way numsid plays SIDs
+Status: milestones 1 and 2 are done and milestone 3 has a first version
+(theme.mid plays); the rest is proposal. The goal is to play Standard MIDI Files the way numsid plays SIDs
 and MODs: the sound hardware emulated in Python + numpy, with live
 playback, `--wav`, `--video` and the visualiser. The first target is
 `theme.mid` (The Secret of Monkey Island).
@@ -231,8 +231,8 @@ go into `docs/midi.md` and `docs/mt32.md`, replacing this plan.
 | # | Delivers | Audible result |
 |---|----------|----------------|
 | 1 | SMF parser, sequencer, detection, `--info` for MIDI files; media gitignored | **done**: `--info theme.mid` lists tracks, channels, GM instruments and length |
-| 2 | ROM loading, control ROM tables, PCM decode, GM-to-MT-32 map | `--info` names the MT-32 timbres theme.mid would use |
-| 3 | LA32 partials, envelopes, parts and partial allocation | `--wav` renders theme.mid on the MT-32, dry |
+| 2 | ROM loading, control ROM tables, PCM decode, GM-to-MT-32 map | **done**: `--info` names the MT-32 timbres theme.mid would use |
+| 3 | LA32 partials, envelopes, parts and partial allocation | **first version done**: theme.mid plays (live too), dry; the LA32 is modelled, to be refined against Munt renders |
 | 4 | Reverb, DAC, live playback, the 9-part visualiser, `--video` | **theme.mid plays live on an MT-32** |
 | 5 | SysEx, LCD, CM-32L | MT-32-native files with custom timbres |
 | 6 | SoundFont 2 GM synth | theme.mid and the rest as authored, on a GM SoundFont |
