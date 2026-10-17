@@ -4,6 +4,10 @@
 .venv/bin/python -m pytest -q
 ```
 
+The ROM-booted game emulator adds actual OpenGL shader tests and an opt-in
+Commando gameplay test using local ROM and game files. See
+[the emulator guide](emulator.md#headless-runs-and-verification).
+
 `tests/reference_sid.py` is a deliberately naive cycle-by-cycle model of the
 oscillators, sync, ring modulation and envelopes. The vectorised engine is
 checked against it cycle for cycle on random register sequences, and must

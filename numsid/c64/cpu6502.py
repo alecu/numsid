@@ -19,7 +19,7 @@ from __future__ import annotations
 
 
 class CPUHalt(Exception):
-    """Raised on JAM/KIL or BRK: the program went off the rails."""
+    """Raised on JAM/KIL (and on BRK in the SID player's diagnostic mode)."""
 
 
 class _Return(Exception):
@@ -244,7 +244,11 @@ _IMPLIED = {
         "self.pc = pc = (hi << 8) | lo",
         "if pc == self.trap: raise _Return",
         "if self.irq_pending and not self.i: self.until = 0"],
-    "BRK": ["raise CPUHalt('BRK at $%04X' % ((self.pc - 1) & 0xFFFF))"],
+    "BRK": ["if self.brk_halts: raise CPUHalt('BRK at $%04X' % ((self.pc - 1) & 0xFFFF))",
+            "ret = (self.pc + 1) & 0xFFFF",
+            "self.push(ret >> 8)", "self.push(ret & 0xFF)",
+            "self.push(self.get_p() | 0x10)", "self.i = 1",
+            "self.pc = mem[0xFFFE] | (mem[0xFFFF] << 8)"],
     "KIL": ["raise CPUHalt('JAM opcode at $%04X' % ((self.pc - 1) & 0xFFFF))"],
 }
 
@@ -257,10 +261,10 @@ def _read_value(mode):
 
 def _write_value(mode, var):
     # The processor port at $00/$01 (memory banking) and everything from
-    # $D000 up (I/O, RAM under the KERNAL ROM) go through the bus.
+    # $A000 up (RAM underneath BASIC/character/KERNAL ROMs) go through the bus.
     if mode in _ZERO_PAGE:
         return [f"if ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
-    return [f"if ea >= 0xD000 or ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
+    return [f"if ea >= 0xA000 or ea < 2: io_write(ea, {var})", f"else: mem[ea] = {var}"]
 
 
 def _write_rmw(mode):
@@ -270,7 +274,7 @@ def _write_rmw(mode):
     # with that first write.
     if mode in _ZERO_PAGE:
         return _write_value(mode, "w")
-    return ["if ea >= 0xD000:",
+    return ["if ea >= 0xA000:",
             "    self.clock += 1",
             "    io_write(ea, v)",
             "    self.clock += 1",
@@ -378,9 +382,9 @@ OPCODES = {e[0]: (e[1], e[2], e[3]) for e in _ENTRIES}
 
 class CPU6502:
     __slots__ = ("mem", "a", "x", "y", "sp", "pc", "c", "zf", "nf", "v", "d", "i",
-                 "clock", "trap", "until", "irq_pending", "ops")
+                 "clock", "trap", "until", "irq_pending", "ops", "brk_halts")
 
-    def __init__(self, mem: bytearray, io_read, io_write):
+    def __init__(self, mem: bytearray, io_read, io_write, *, brk_halts: bool = True):
         self.mem = mem
         self.a = self.x = self.y = 0
         self.sp = 0xFF
@@ -393,6 +397,7 @@ class CPU6502:
         self.trap = -1          # return address that ends call() / run()
         self.until = 0          # run until the clock reaches this (devices may cut it short)
         self.irq_pending = False  # an IRQ is waiting for the I flag to clear
+        self.brk_halts = brk_halts
         self.ops = _factory(self, mem, io_read, io_write, self._adc, self._sbc,
                             CPUHalt, _Return)
 
