@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from numsid.mt32.synth import RATE, Envelope, wavetable
+from numsid.mt32.synth import RATE, Envelope, timbre_bytes, wavetable
 
 ROOT = Path(__file__).resolve().parent.parent
 ROMS = ROOT / "roms"
@@ -67,6 +67,12 @@ def test_wavetable_edges_and_resonance():
     res = np.abs(np.fft.rfft(wavetable(False, 0.5, 0.05, 30, 100)[:-1]))
     plain = np.abs(np.fft.rfft(wavetable(False, 0.5, 0.05, 0, 100)[:-1]))
     assert res[9] > plain[9] * 2
+    # a saw's table is two periods; a pulse width over 50 brings in the
+    # half-pitch harmonics (odd bins) at about the same level
+    saw = np.abs(np.fft.rfft(wavetable(True, 0.5, 0.01, 0, 100)[:-1]))
+    narrow = np.abs(np.fft.rfft(wavetable(True, 0.125, 0.01, 0, 100)[:-1]))
+    assert saw[1] < saw[2] * 1e-6 and narrow[1] > narrow[2] * 0.3
+    assert np.linalg.norm(narrow) == pytest.approx(np.linalg.norm(saw), rel=0.01)
 
 
 @pytest.fixture(scope="module")
@@ -134,10 +140,30 @@ def test_sysex_writes_timbres_patches_and_system(rom):
     assert s.parts[0].timbre.name == "TEST TONE"
     s.message(0xF0, _sysex([3, 0, 16 + 1], [5]))   # part 2 plays timbre A-6
     assert s.parts[1].timbre.name == rom[0].bank_a[5].name
-    s.message(0xF0, _sysex([0x10, 0, 2], [0]))     # reverb level 0
-    assert s.reverb.level == 0
-    s.message(0xF0, _sysex([0x10, 0, 0x16], [50]))  # master volume
+    # the system area as Sierra's driver writes it: master tune, reverb mode,
+    # time and level, partial reserve, MIDI channels, master volume
+    s.message(0xF0, _sysex([0x10, 0, 0], [74, 1, 6, 0, 3, 10, 6, 4, 3, 0, 0, 0, 6,
+                                          0, 1, 2, 3, 4, 5, 6, 7, 9, 50]))
+    assert (s.reverb.mode, s.reverb.time, s.reverb.level) == (1, 6, 0)
+    assert s.tune == 0 and s.reserve[1] == 10
+    assert s.channel_part[0] == 0 and s.channel_part[9] == 8 and 8 not in s.channel_part
     assert s.master_db == pytest.approx(-14.3)
+    s.message(0xF0, _sysex([0x20, 0, 0], b"  Space Quest 3"))   # the LCD
+    assert s.display == "  Space Quest 3"
+
+
+@needs_roms
+def test_rhythm_keys_can_play_memory_timbres(rom):
+    s = _synth(rom)
+    tone = timbre_bytes(rom[0].bank_b[10])
+    tone[:10] = b"MEMORY 3  "
+    s.message(0xF0, _sysex([8, 3 << 1, 0], tone))  # timbre memory slot 3
+    assert s.memory[3].name == "MEMORY 3"
+    at = (1 << 7 | 0x10) + 4 * (90 - 24)          # rhythm setup, key 90
+    s.message(0xF0, _sysex([3, at >> 7, at & 127], [3, 80, 7, 1]))
+    assert s.rhythm[90].memory and s.rhythm[90].timbre == 3
+    s.message(0x99, bytes([90, 100]))
+    assert s.parts[8].notes and s.parts[8].notes[0].timbre.name == "MEMORY 3"
 
 
 @needs_roms

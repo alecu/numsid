@@ -128,5 +128,7 @@ class MidiPlayer(Player):
             lines.append([f"{name}", f"{note:<4} keys {held:2d}", f"partials {partials:2d}  vol {volume:3d}"])
             levels.append(min(1.0, partials / 8))
         used = sum(s[2] for s in state)
-        chip = [f"PARTIALS {used:2d}/32", f"file for {self.synth_for}"]
+        # the LCD, when the file's SysEx wrote on it
+        lcd = f"LCD  {self.synth.display}" if self.synth.display else f"file for {self.synth_for}"
+        chip = [f"PARTIALS {used:2d}/32", lcd]
         return Readout(position, lines, levels, chip)

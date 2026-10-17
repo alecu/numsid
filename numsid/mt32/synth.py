@@ -56,6 +56,8 @@ BLOCK = 128
 PARTIALS = 32
 RHYTHM = 8                                   # index of the rhythm part
 DEFAULT_RESERVE = (3, 10, 6, 4, 3, 0, 0, 0, 6)
+PW_VELOCITY = 100 / 256                                # PW steps per velocity step per sens step
+TUNE_CENTS = 1200 * math.log2(457.6 / 432.1) / 127     # master tune step
 C4 = 261.6256
 TIMBRE = COMMON + 4 * PARTIAL                # 246 bytes
 
@@ -262,8 +264,11 @@ def _square(m: np.ndarray, duty: float, w: float, res: int) -> np.ndarray:
     """Complex Fourier coefficients (harmonics m of its own period) of the
     LA32 square: +1 from 0 to `duty`, -1 after, half-cosine edges `w`
     periods long, and ringing after each edge for resonance."""
+    # edges longer than the half period lose level; a narrow pulse only
+    # squeezes its edges into the pulse
+    gain = (0.5 / w) ** 1.9 if w > 0.5 else 1.0
     lim = min(duty, 1 - duty)
-    gain, w_edge = ((lim / w) ** 1.9, lim) if w > lim else (1.0, w)
+    w_edge = min(w, lim)
     edges = 1 - np.exp(-2j * np.pi * m * duty)          # rising at 0, falling at duty
     base = float(np.interp(res, RES_POINTS, RES_SQUARE))
     c = 2 * edges / (2j * np.pi * m) * _kernel(m * w_edge) * base
@@ -280,10 +285,17 @@ def _square(m: np.ndarray, duty: float, w: float, res: int) -> np.ndarray:
     return c * gain
 
 
+def _square_dc(duty: float, w: float, res: int) -> float:
+    """The square's mean (its edges are symmetric, so they don't move it)."""
+    gain = (0.5 / w) ** 1.9 if w > 0.5 else 1.0
+    return (2 * duty - 1) * float(np.interp(res, RES_POINTS, RES_SQUARE)) * gain
+
+
 def wavetable(saw: bool, duty: float, w: float, res: int, harmonics: int) -> np.ndarray:
     """One cycle of a synth partial's wave, band-limited to `harmonics`.
     `w` is the edge length in periods of the note (quantised to 1/24
-    octave so tables are shared)."""
+    octave so tables are shared).  A sawtooth's table holds two periods of
+    the note, and `harmonics` counts harmonics of that."""
     lw = round(24 * math.log2(max(w, 1e-4)))
     key = (saw, round(duty * 256), lw, res, harmonics)
     t = _tables.get(key)
@@ -292,10 +304,17 @@ def wavetable(saw: bool, duty: float, w: float, res: int, harmonics: int) -> np.
     w = 2.0 ** (lw / 24)
     n = np.arange(1, harmonics + 1)
     if saw:
-        # the square at half the pitch times a cosine at half the pitch:
-        # harmonic n of the note gets half of each of its neighbours 2n +- 1
-        c = _square(np.arange(1, 2 * harmonics + 2), duty, w, res)
-        coef = 0.5 * (c[2 * n - 2] + c[2 * n])
+        # the square at half the pitch times a cosine at half the pitch.
+        # A pulse width other than 50 gives the square even harmonics, and
+        # the product the half-pitch ones: the wave repeats every two periods
+        def product(d):
+            c = np.concatenate([[_square_dc(d, w, res)],
+                                _square(np.arange(1, harmonics + 2), d, w, res)])
+            return 0.5 * (c[n - 1] + c[n + 1])
+        coef = product(duty)
+        if duty != 0.5:
+            # the pulse width changes the saw's shape but not its level
+            coef *= np.linalg.norm(product(0.5)) / max(np.linalg.norm(coef), 1e-12)
     else:
         coef = _square(n, duty, w, res)
     spec = np.zeros(TABLE // 2 + 1, dtype=complex)
@@ -376,6 +395,7 @@ class Part:
     expression: int = 127
     pan: int = 64                                # MT-32 sense: 0 is right
     key_shift: int = 0
+    fine: int = 0                                # fine tune, cents
     reverb: bool = True
     bend: float = 0.0                            # -1..1
     bend_range: int = 12
@@ -423,11 +443,10 @@ class MT32:
         self.scope = np.zeros((9, SCOPE_SIZE), dtype=np.float32)
         self.scope_out = np.zeros(SCOPE_SIZE, dtype=np.float32)
         if channel_map is None:
-            channel_map = {c: c for c in range(1, 10)}
+            channel_map = {c: c for c in range(16)}
         # file channel -> part: MT-32 channels 2-9 are parts 1-8, 10 is rhythm
         # (all 0-based here)
-        self.channel_part = {c: (RHYTHM if m == 9 else m - 1) for c, m in channel_map.items()
-                             if 1 <= m <= 9}
+        self.channel_map = channel_map
         self.reset()
 
     @property
@@ -447,7 +466,9 @@ class MT32:
         # range, assign mode, reverb switch, dummy
         self.patches = [bytes([p // 64, p % 64, 24, 50, 12, 0, 1, 0]) for p in range(128)]
         self.rhythm = dict(self.rom.rhythm)
+        self.memory_bytes = [bytearray(TIMBRE) for _ in range(64)]
         self.dirty: set = set()
+        self.dirty_memory: set = set()
         for i in range(8):
             self._program(i, 0)
         self.parts[RHYTHM].bend_range = 0
@@ -455,11 +476,22 @@ class MT32:
             if self.gm:
                 part.bend_range = 2
         self.master_db = 0.0
+        self.tune = 0.0                                     # master tune, cents
+        self.reserve = list(DEFAULT_RESERVE)
+        self.display = ""
+        # part -> the MT-32 channel it listens on (2-9 and 10, 0-based);
+        # a GM file's channels are moved onto those by `channel_map`
+        self.part_channel = list(range(1, 10))
+        self._map_channels()
         self.t = 0
         self.reverb = Reverb()
         self.resampler.reset()
         self.out: deque = deque()
         self.out_len = 0
+
+    def _map_channels(self) -> None:
+        on = {c: part for part, c in enumerate(self.part_channel) if c < 16}
+        self.channel_part = {c: on[m] for c, m in self.channel_map.items() if m in on}
 
     # ---- MIDI -------------------------------------------------------------------
     def _set_timbre(self, part: int, group: int, number: int) -> None:
@@ -482,9 +514,10 @@ class MT32:
             program = self.maps.GM_TO_MT32[program]
             self._set_timbre(part, program // 64, program % 64)
             return
-        group, number, shift, _, bend, _, reverb, _ = self.patches[program]
+        group, number, shift, fine, bend, _, reverb, _ = self.patches[program]
         self._set_timbre(part, group, number)
         p.key_shift = shift - 24
+        p.fine = fine - 50
         p.bend_range = bend
         p.reverb = bool(reverb)
 
@@ -544,7 +577,10 @@ class MT32:
             self._poke(addr + i, v)
         for part in self.dirty:
             self.parts[part].timbre = timbre_from_bytes(self.temp[part])
+        for n in self.dirty_memory:
+            self.memory[n] = timbre_from_bytes(self.memory_bytes[n])
         self.dirty.clear()
+        self.dirty_memory.clear()
 
     def _poke(self, addr: int, v: int) -> None:
         a = addr - (0x03 << 14)
@@ -572,17 +608,29 @@ class MT32:
         if 0 <= a < 64 * 256:
             n, off = divmod(a, 256)
             if off < TIMBRE:
-                cur = timbre_bytes(self.memory[n]) if self.memory[n] else bytearray(TIMBRE)
-                cur[off] = v
-                self.memory[n] = timbre_from_bytes(cur)
+                self.memory_bytes[n][off] = v
+                self.dirty_memory.add(n)
             return
         a = addr - (0x10 << 14)
-        if 0 <= a <= 2:
+        if a == 0:
+            # 432.1-457.6 Hz, 74 is 440 Hz
+            self.tune = (v - 74) * TUNE_CENTS
+        elif 1 <= a <= 3:
             mode = [self.reverb.mode, self.reverb.time, self.reverb.level]
-            mode[a] = v
-            self.reverb.set(*mode)
+            mode[a - 1] = v
+            if mode[0] <= 3:
+                self.reverb.set(*mode)
+        elif 4 <= a <= 0x0C:
+            self.reserve[a - 4] = v
+        elif 0x0D <= a <= 0x15:
+            self.part_channel[a - 0x0D] = v
+            self._map_channels()
         elif a == 0x16:
             self.master_db = level_db(v)
+        a = addr - (0x20 << 14)
+        if 0 <= a < 20:
+            text = self.display.ljust(20)
+            self.display = (text[:a] + chr(v if 32 <= v < 127 else 32) + text[a + 1:]).rstrip()
 
     def _patch_temp(self, part: int, off: int, v: int) -> None:
         p = self.parts[part]
@@ -592,6 +640,8 @@ class MT32:
             self._set_timbre(part, p.group, v)
         elif off == 2:
             p.key_shift = v - 24
+        elif off == 3:
+            p.fine = v - 50
         elif off == 4:
             p.bend_range = v
         elif off == 6:
@@ -602,14 +652,17 @@ class MT32:
             p.pan = v * 9                            # 0-14, onto the same eight steps
 
     def _rhythm_setup(self, key: int, off: int, v: int) -> None:
-        r = self.rhythm.get(key)
-        if r is None:
-            return
-        vals = [127 if r.timbre is None else 64 + r.timbre, r.level, r.pan, int(r.reverb)]
+        r = self.rhythm.get(key) or RhythmKey(None, 100, 7, True)
+        t = 127 if r.timbre is None else r.timbre + (0 if r.memory else 64)
+        vals = [t, r.level, r.pan, int(r.reverb)]
         vals[off] = v
-        t = vals[0] - 64
-        self.rhythm[key] = RhythmKey(t if 0 <= t < len(self.rom.rhythm_timbres) else None,
-                                     vals[1], vals[2], bool(vals[3]))
+        # timbre 0-63 is a timbre memory slot, 64 on the rhythm bank
+        t, memory = vals[0], vals[0] < 64
+        if not memory:
+            t -= 64
+            if t >= len(self.rom.rhythm_timbres):
+                t = None
+        self.rhythm[key] = RhythmKey(t, vals[1], vals[2], bool(vals[3]), memory)
 
     # ---- notes ----------------------------------------------------------------------
     def note_on(self, part: int, key: int, velocity: int) -> None:
@@ -624,10 +677,13 @@ class MT32:
             setup = self.rhythm.get(key)
             if setup is None or setup.timbre is None:
                 return
-            timbre = self.rom.rhythm_timbres[setup.timbre]
+            if setup.memory:
+                timbre = self.memory[setup.timbre] or self.rom.bank_a[setup.timbre]
+            else:
+                timbre = self.rom.rhythm_timbres[setup.timbre]
             level = level_db(setup.level)
             pan = setup.pan
-            pitch_key = 60
+            pitch_key = key                      # drums play at their key's pitch too
             reverb = setup.reverb
         else:
             timbre = p.timbre
@@ -675,7 +731,7 @@ class MT32:
             notes = [n for p in self.parts for n in p.notes]
             released = [n for n in notes if n.released]
             usage = [sum(n.count for n in p.notes) for p in self.parts]
-            over = [n for n in notes if usage[n.part] > DEFAULT_RESERVE[n.part]]
+            over = [n for n in notes if usage[n.part] > self.reserve[n.part]]
             own = [n for n in self.parts[part].notes]
             for pool in (released, over, own):
                 if pool:
@@ -732,7 +788,7 @@ class MT32:
         if b[8]:
             pt.pitch_depth = (100 * 2.0 ** (b[8] - 10)
                               * (1 - min(b[9], 3) / 3 * (1 - velocity / 127)))
-        pw = b[6] + (velocity - 64) / 63 * 50 * (min(b[7], 14) - 7) / 7
+        pw = b[6] + (velocity - 64) * (min(b[7], 14) - 7) * PW_VELOCITY
         pw = min(max(pw, 0), 100)
         pt.duty = 0.5 if pw <= 50 else 0.5 * 2.0 ** (-(pw - 50) / 25)
         return pt
@@ -849,7 +905,7 @@ class MT32:
         cents = ((note.pitch_key - 60) * kf + (b[0] - 36)) * 100 + (b[1] - 50)
         if b[2] == 16:
             cents += 5
-        cents += (p0 + p1) / 2 * pt.pitch_depth
+        cents += (p0 + p1) / 2 * pt.pitch_depth + part.fine + self.tune
         if b[3]:
             cents += part.bend * part.bend_range * 100
         lfo = 0.56 * (b[21] + b[22] * part.modulation / 127)
@@ -863,8 +919,10 @@ class MT32:
                 return None
             cutoff = pt.cutoff + pt.env_depth * (f0_ + f1_) / 200
             w = edge_samples(cutoff) * freq / RATE
-            table = wavetable(bool(b[4] & 1), pt.duty, w, min(b[24], 30), harmonics_for(freq))
-            inc = freq / RATE
+            saw = bool(b[4] & 1)
+            cycle = freq / 2 if saw else freq            # a saw's table is two periods
+            table = wavetable(saw, pt.duty, w, min(b[24], 30), harmonics_for(cycle))
+            inc = cycle / RATE
             phase = (pt.pos + inc * np.arange(n)) % 1.0
             pt.pos = (pt.pos + inc * n) % 1.0
             x = phase * TABLE

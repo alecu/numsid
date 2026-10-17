@@ -73,6 +73,7 @@ class RhythmKey:
     level: int               # 0-100
     pan: int                 # 0 (left) - 14 (right)
     reverb: bool
+    memory: bool = False     # `timbre` is a timbre memory slot (set by SysEx)
 
 
 def _timbre(blob: bytes, at: int, packed: bool) -> tuple[Timbre, int]:
