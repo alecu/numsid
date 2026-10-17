@@ -2,6 +2,7 @@
 
     python -m numsid TUNE.sid                 window with scopes + live audio
     python -m numsid TUNE.mod                 the same for an Amiga MOD
+    python -m numsid TUNE.mid --info          what a MIDI file holds (playback to come)
     python -m numsid TUNE.sid --headless      live audio only
     python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
 """
@@ -13,6 +14,7 @@ import sys
 import time
 
 from .amiga import modfile
+from .midi import smf
 from .player import write_wav
 from .tunes import load_tune, open_player
 
@@ -22,7 +24,7 @@ MODELS = ("6581", "8580", "A500", "A1200")
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="numsid", description="Play C64 SID tunes and Amiga MODs, emulated in Python.")
-    ap.add_argument("tune", help="PSID/RSID file, or a ProTracker/SoundTracker MOD")
+    ap.add_argument("tune", help="PSID/RSID file, a ProTracker/SoundTracker MOD, or a MIDI file")
     ap.add_argument("-s", "--song", type=int, help="SID subtune (default: the file's start song)")
     ap.add_argument("-p", "--pos", type=int, default=0,
                     help="MOD order position to start at (default 0)")
@@ -65,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     print(tune.describe())
     if args.info:
         return 0
+    if isinstance(tune, smf.MidiFile):
+        print("numsid: MIDI playback isn't implemented yet; --info works", file=sys.stderr)
+        return 1
 
     is_mod = isinstance(tune, modfile.ModFile)
     if is_mod:

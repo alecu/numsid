@@ -1,10 +1,10 @@
 # Plan: General MIDI and MT-32 playback
 
-Status: proposal, nothing implemented yet. The goal is to play Standard MIDI
-Files the way numsid plays SIDs and MODs: the sound hardware emulated in
-Python + numpy, with live playback, `--wav`, `--video` and the visualiser.
-The first target is `theme.mid` (The Secret of Monkey Island) on an emulated
-Roland MT-32.
+Status: milestone 1 (parsing, detection, `--info`) is done; the rest is
+proposal. The goal is to play Standard MIDI Files the way numsid plays SIDs
+and MODs: the sound hardware emulated in Python + numpy, with live
+playback, `--wav`, `--video` and the visualiser. The first target is
+`theme.mid` (The Secret of Monkey Island).
 
 ## What we have
 
@@ -29,30 +29,35 @@ and Sierra soundtracks were written for. `--model CM-32L` would pick
 
 ### The MIDI files
 
-All 14 are format 1, 192 ticks per quarter note. They fall into two groups:
+All 14 are format 1, 192 ticks per quarter note, and all 14 are **General
+MIDI**. Most are Quest Studios' GM conversions of the Monkey Island
+soundtrack, and say "GENERAL MIDI VERSION" in a text event; their program
+numbers read as sensible GM instruments (pan flute, marimba, drawbar organ,
+acoustic bass). The rest are other GM arrangements: `melee` and `voodoo1`
+from NoteWorthy Composer, `lechuck` (GM System On SysEx) and `stan1`
+(Yamaha XG reset).
 
-* **MT-32 native (8 files)**: `theme`, `scumm`, `fetuchini`, `ghostdance`,
-  `journey`, `meleefor`, `monkeyisl` and `flove`. These are rips from the game. They use MIDI channels 2-9 and 10, which is
-  the MT-32's factory assignment (parts 1-8 and rhythm), never channel 1,
-  and program numbers that only make sense as MT-32 patches. `flove.mid`
-  even says "FOR THE ROLAND MT-32, LAPC-1, CM-32L, and CM-64 ONLY" in a text
-  event. None of them contains SysEx, so they play on the factory timbres.
-  (The game itself uploaded custom timbres at start-up. Where a rip sounds
-  different from the game, that is the file, not the emulator.)
-* **General MIDI (6 files)**: `melee` and `voodoo1` (NoteWorthy Composer
-  arrangements), `folshop` and `prelude` (arrangements credited to Michael
-  Land and team; `prelude` is one organ on channel 1 with GM's Church
-  Organ), `lechuck` (starts with a GM System On SysEx) and `stan1` (starts
-  with a Yamaha XG reset). These use channel 1 and GM program numbers.
+The Quest Studios files are easy to mistake for MT-32 files: they keep the
+MT-32 channel layout (melody on 2-9, drums on 10, nothing on 1), and
+`flove.mid` even carries the site's "FOR THE ROLAND MT-32 ... ONLY" banner.
+But they say they are GM, and played as MT-32 patches their programs come
+out as harpsichords and bells. So none of the samples is MT-32 native.
 
-`theme.mid`: 15 tracks, about 2:54 at 120 BPM, channels 2-8 and 10, 3,900
-notes of which 1,217 are drums, at most 16 notes sounding at once. Read
-against the timbre names in the 1.07 control ROM (assuming the factory
-patch map, to be confirmed in milestone 2), its parts are Harpsi 1 and
-Piccolo 2, Pipe Org 1 and 2, Harpsi 1 and Fantasy, Pipe Org 1, Fantasy,
-Warm Bell and Recorder, plus the rhythm part. With timbres of 1 to
-4 partials each, 16 notes can exceed the MT-32's 32 partials, so partial
-allocation and stealing have to be right for it to sound right.
+`theme.mid`: 15 tracks, 2:54 at 120 BPM, channels 2-8 and 10, 3,900 notes
+of which 1,217 are drums, at most 16 notes sounding at once. Its GM
+instruments are Pan Flute and Drawbar Organ (ch 2), Xylophone and Marimba
+(3), Drawbar Organ and Acoustic Bass (4), Marimba (5), Acoustic Bass (6),
+Synth Bass 1 (7), Blown Bottle (8), and GM drums.
+
+That gives theme.mid two routes to the speakers:
+
+* **On the emulated MT-32, through a GM-to-MT-32 map.** The MT-32's factory
+  sounds include Panpipes, Marimba, Xylophone, electric organs and Acou
+  Bass, and the GM drum map grew out of the MT-32's rhythm map, so the map
+  loses little on this song. This is how games of the era played GM music
+  on an MT-32, and it uses the ROMs we have.
+* **On a General MIDI synth**, as the file was written. That needs a GM
+  sound source: a SoundFont the user supplies (see General MIDI below).
 
 ## Where the code goes
 
@@ -106,23 +111,15 @@ it is the reference everyone compares against. The control ROM still
 matters: its tables decide every sound, and version differences (1.07 vs
 2.07 vs CM-32L) come through.
 
-### Licensing decision
+### Clean room (decided 2026-10-17)
 
-Munt is the only detailed public description of how the LA32 and the
-firmware behave, down to the exponent tables and envelope step rates. It is
-LGPL-2.1+. Two ways to use it:
-
-1. **Port it** to numpy, closely following its structure. Fastest to an
-   accurate result. `numsid/mt32` becomes a derivative of Munt and has to be
-   LGPL-2.1+ with Munt's copyright notice. numsid currently has no licence
-   file at all, so this would be the time to pick one (anything compatible:
-   LGPL for the whole project, or MIT/BSD for the rest with `numsid/mt32`
-   LGPL).
-2. **Clean room**: write it from behaviour, published analyses and our own
-   measurements against Munt renders, without reading its source. Slower and
-   less accurate at first, licence unconstrained.
-
-This is the one question that has to be settled before writing code.
+Munt is LGPL-2.1+, and porting it would have made `numsid/mt32` a
+derivative work. Instead the MT-32 engine is written clean room: from the
+ROM contents themselves, published descriptions of the hardware, and
+measurements against renders. Munt's source is not read. Munt is used only
+as a black-box test oracle (`mt32emu-smf2wav` renders to compare against),
+never as a dependency. That is slower going, and early milestones will be
+less accurate than Munt, but leaves numsid's licence unconstrained.
 
 ### Pieces, in build order
 
@@ -133,8 +130,9 @@ This is the one question that has to be settled before writing code.
    (A, B, the internal memory and rhythm), the 85-key rhythm setup, the PCM
    sample descriptors, and the lookup tables for pitch, envelope time and
    key follow. Offsets differ per ROM version, so `roms.py` carries a small
-   table of offsets keyed by SHA-1. `--info` can then name the instruments:
-   theme.mid's patch 16 shows up as "Harpsi 1" rather than a number.
+   table of offsets keyed by SHA-1. `--info` can then name the instruments,
+   both the MT-32 timbre a patch number selects and, for a GM file, the
+   MT-32 timbre the GM map sends it to.
 3. **PCM ROM decode.** The MT-32's PCM ROM has its address and data lines
    scrambled on the board, and samples are stored in the LA32's own
    log-like format. Unscramble once at load and cache as int16/float32.
@@ -197,8 +195,8 @@ the coefficients per small block and filtering each block with a closed form.
 
 Without an SF2, GM files play on the emulated MT-32 through `maps.py`: GM
 programs and drum keys mapped to the nearest MT-32 patch and rhythm key
-(the approach ScummVM and Sierra used). It sounds like an MT-32 playing GM,
-which is not great, but it works out of the box.
+(the approach ScummVM and Sierra used). How close it gets depends on
+the song: theme.mid's instruments all have good MT-32 equivalents.
 
 The same maps work the other way: `--model GM` on an MT-32 file maps MT-32
 patches to GM programs, for comparison or for people without the ROMs.
@@ -206,7 +204,8 @@ patches to GM programs, for comparison or for people without the ROMs.
 ## Media and the repository
 
 ROMs and MIDI files stay out of git, like `sids/` and `mods/`. `.gitignore`
-gets `roms/`, `midi/`, `*.mid`, `*.rom` and `*.sf2`. Tests that need them
+has `/roms/`, `/midi/` (anchored, so `numsid/midi/` is not caught),
+`*.mid`, `*.rom` and `*.sf2`. Tests that need them
 are skipped when they are missing, and synthetic SMF data built in the tests
 covers the parser and sequencer without any media. The README gets a short
 MIDI section on where to put the ROMs and how to play a file; the internals
@@ -231,15 +230,18 @@ go into `docs/midi.md` and `docs/mt32.md`, replacing this plan.
 
 | # | Delivers | Audible result |
 |---|----------|----------------|
-| 1 | SMF parser, sequencer, detection, `--info` for MIDI files; media gitignored | none, but `--info theme.mid` lists tracks, channels and length |
-| 2 | ROM loading, control ROM tables, PCM decode | `--info` names theme.mid's MT-32 instruments |
-| 3 | LA32 partials, envelopes, parts and partial allocation | `--wav` renders theme.mid, dry |
+| 1 | SMF parser, sequencer, detection, `--info` for MIDI files; media gitignored | **done**: `--info theme.mid` lists tracks, channels, GM instruments and length |
+| 2 | ROM loading, control ROM tables, PCM decode, GM-to-MT-32 map | `--info` names the MT-32 timbres theme.mid would use |
+| 3 | LA32 partials, envelopes, parts and partial allocation | `--wav` renders theme.mid on the MT-32, dry |
 | 4 | Reverb, DAC, live playback, the 9-part visualiser, `--video` | **theme.mid plays live on an MT-32** |
-| 5 | SysEx, LCD, CM-32L | custom-timbre files from Sierra/LucasArts games |
-| 6 | SoundFont 2 GM synth | melee, voodoo1, lechuck, stan1 |
-| 7 | MT-32 <-> GM maps | any file on either synth |
+| 5 | SysEx, LCD, CM-32L | MT-32-native files with custom timbres |
+| 6 | SoundFont 2 GM synth | theme.mid and the rest as authored, on a GM SoundFont |
+| 7 | MT-32-to-GM map | MT-32-native files on the GM synth |
 
-Milestones 1-4 are the theme.mid path. Each lands as its own PR with tests.
+Milestones 2-4 and 6 are independent, so the SoundFont synth could come
+first instead: it is much less work than the MT-32 and plays theme.mid as
+written, but needs a SoundFont download. Each milestone lands as its own PR
+with tests.
 
 ## Risks
 
