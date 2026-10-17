@@ -2,7 +2,7 @@ import numpy as np
 
 from numsid.c64 import C64
 from numsid.cia import CIA
-from numsid.player import Player
+from numsid.player import SIDPlayer as Player
 from numsid.psid import PSIDFile
 
 

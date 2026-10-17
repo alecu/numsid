@@ -1,4 +1,5 @@
-"""Visualiser: per-voice oscilloscopes and register state.
+"""Visualiser: per-voice oscilloscopes and register state, for any player
+(three SID voices, four or more Paula channels).
 
 `Dashboard` draws everything for a given playback position into the current
 GL target, at any size: it is used by the live `Visualizer` window and by
@@ -8,8 +9,6 @@ position rather than taken from "now".
 """
 
 from __future__ import annotations
-
-import math
 
 import numpy as np
 import pyglet
@@ -26,26 +25,19 @@ PANEL = (26, 29, 43)
 GRID = (44, 48, 68)
 TEXT = (220, 224, 236)
 DIM = (130, 136, 160)
-VOICE_COLORS = [(255, 122, 92), (104, 214, 142), (110, 160, 255)]
+VOICE_COLORS = [(255, 122, 92), (104, 214, 142), (110, 160, 255), (236, 196, 88),
+                (196, 132, 255), (84, 208, 220), (255, 140, 196), (176, 204, 104)]
 MUTED_COLOR = (74, 77, 88)       # trace colour of a muted voice
 OUT_COLOR = (236, 236, 240)
 
-WINDOW_LAYOUT = (980, 660)       # logical units of the live window
+WINDOW_LAYOUT = (980, 660)       # logical units of the live window (three voices)
 VIDEO_LAYOUT = (1280, 720)       # 16:9, for recordings
-HELP = ("←/→ subtune    1 2 3 mute voice    SPACE pause    F filter on/off    "
-        "M 6581/8580    ESC quit")
-
-NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
-WAVE_NAMES = [(1, "TRI"), (2, "SAW"), (4, "PUL"), (8, "NOI")]
 
 
-def note_name(hz: float) -> str:
-    if hz < 8:
-        return "---"
-    midi = 69 + 12 * math.log2(hz / 440.0)
-    n = int(round(midi))
-    cents = int(round((midi - n) * 100))
-    return f"{NOTE_NAMES[n % 12]}{n // 12 - 1} {cents:+3d}c"
+def window_layout(voices: int) -> tuple[int, int]:
+    """The live window grows a panel's height per voice beyond three."""
+    w, h = WINDOW_LAYOUT
+    return w, min(h + 110 * max(0, voices - 3), 900)
 
 
 class Scope:
@@ -118,7 +110,7 @@ class Dashboard:
     canvas of `px_width` pixels."""
 
     def __init__(self, player: Player, px_width: int, layout=WINDOW_LAYOUT, *,
-                 footer: str = HELP, progress: bool = False, max_points: int = 900,
+                 footer: str | None = None, progress: bool = False, max_points: int = 900,
                  line_width: float = 1.4):
         self.W, self.H = layout
         self.u = u = px_width / self.W
@@ -129,33 +121,43 @@ class Dashboard:
         self.span = int(player.sample_rate * 0.025)        # 25 ms of signal per scope
         self.keep = []                                      # keep static drawables alive
         W, H = self.W, self.H
-        tune = player.tune
+        if footer is None:
+            footer = player.help
 
-        self.title = self._label(tune.name, 24, H - 40, 18, bold=True)
-        self.subtitle = self._label(f"{tune.author}  ·  {tune.released}", 24, H - 64, 11, DIM)
+        self.title = self._label(player.title, 24, H - 40, 18, bold=True)
+        self.subtitle_text = player.subtitle
+        self.subtitle = self._label(self.subtitle_text, 24, H - 64, 11, DIM)
         self.status = self._label("", W - 24, H - 40, 12, anchor_x="right")
         self.status2 = self._label("", W - 24, H - 64, 10, DIM, anchor_x="right")
+        self.status3 = self._label("", W - 24, H - 82, 10, DIM, anchor_x="right")
         self.progress = None
         if progress:
             self.keep.append(self._rect(16, H - 84, W - 32, 3, GRID, self.bg))
             self.progress = self._rect(16, H - 84, 0, 3, DIM, self.fg)
 
         header, footer_h, out_h, gap, info_w = 92, 30, 110, 10, 270
-        panel_h = (H - header - footer_h - out_h - 4 * gap) / 3
+        n = player.voices
+        panel_h = (H - header - footer_h - out_h - (n + 1) * gap) / n
         sx, sw = 16 + info_w, W - 32 - info_w - 12
         points = min(int(sw * u), max_points)
         thick = line_width * u
+        # info lines: as many as fit between the name and the level bar
+        room = panel_h - 72
+        nlines = min(player.info_lines, int(room / 14) + 1) if room >= 0 else 0
+        spacing = min(19.0, room / (nlines - 1)) if nlines > 1 else 0
         self.voice_scopes, self.voice_labels, self.env_bars, self.env_tracks = [], [], [], []
         self.env_w = (info_w - 40) * u
-        for i in range(3):
+        for i in range(n):
             y = H - header - (i + 1) * panel_h - i * gap
-            col = VOICE_COLORS[i]
+            col = VOICE_COLORS[i % len(VOICE_COLORS)]
             self.keep.append(self._rect(16, y, W - 32, panel_h, PANEL, self.bg))
             self.keep.append(self._rect(sx, y + panel_h / 2, sw, 1, GRID, self.bg))
             self.voice_scopes.append(Scope(sx * u, (y + 8) * u, sw * u, (panel_h - 16) * u, col,
                                            thick, self.batch, self.fg, points))
-            name = self._label(f"VOICE {i + 1}", 30, y + panel_h - 26, 13, col, bold=True)
-            lines = [self._label("", 30, y + panel_h - 50 - 19 * k, 10) for k in range(4)]
+            name = self._label(f"{player.voice_label} {i + 1}", 30, y + panel_h - 26, 13, col,
+                               bold=True)
+            lines = [self._label("", 30, y + panel_h - 50 - spacing * k, 10)
+                     for k in range(nlines)]
             self.voice_labels.append((name, lines))
             self.env_tracks.append(self._rect(30, y + 12, info_w - 40, 6, GRID, self.bg))
             self.env_bars.append(self._rect(30, y + 12, 0, 6, col, self.fg))
@@ -187,70 +189,63 @@ class Dashboard:
         if label.text != text:
             label.text = text
 
-    def update(self, player: Player, pos: float, *, status2: str = "", paused: bool = False,
-               duration: float | None = None, brightness: float = 1.0) -> None:
-        sid, tune = player.sid, player.tune
-        self._set(self.status, f"song {player.song}/{tune.songs}   "
+    def _fit_subtitle(self) -> None:
+        """Shorten the subtitle with an ellipsis if it would run into the
+        right-hand status line (wide fonts, long author names)."""
+        room = (self.status2.x - self.status2.content_width - self.subtitle.x
+                - 16 * self.u)
+        text = self.subtitle_text
+        self.subtitle.text = text
+        while self.subtitle.content_width > room and len(text) > 1:
+            text = text[:-1]
+            self.subtitle.text = text.rstrip(" ·") + "…"
+
+    def update(self, player: Player, pos: float, *, status2: str = "", status3: str = "",
+               paused: bool = False, duration: float | None = None,
+               brightness: float = 1.0) -> None:
+        """Show the moment heard at `pos`.  `status2` and `status3` are the
+        dim lines under the position at the top right."""
+        chip = player.chip
+        readout = player.readout(player.state_at(pos))
+        self._set(self.status, f"{readout.position}   "
                                f"{int(pos) // 60:02d}:{int(pos) % 60:02d}"
                   + ("   PAUSED" if paused else ""))
-        self._set(self.status2, status2)
+        if self.status2.text != status2:
+            self.status2.text = status2
+            self._fit_subtitle()
+        self._set(self.status3, status3)
         if self.progress is not None and duration:
             self.progress.width = (self.W - 32) * self.u * min(pos / duration, 1.0)
         self.shade.opacity = int(255 * (1.0 - max(0.0, min(1.0, brightness))))
 
         k = player.sample_index(pos)
-        step = sid.scope_step
-        voice_span = int(self.span * (tune.clock / step) / player.sample_rate)
+        step = chip.scope_step
+        voice_span = int(self.span * (player.clock / step) / player.sample_rate)
         tap = player.cycle_at(pos) // step
         for i, scope in enumerate(self.voice_scopes):
-            muted = sid.mute[i]
-            scope.set_color(MUTED_COLOR if muted else VOICE_COLORS[i])
-            scope.set(_fit(triggered_window(sid.scope[i], tap, voice_span, voice_span), scope.n))
+            muted = chip.mute[i]
+            scope.set_color(MUTED_COLOR if muted else VOICE_COLORS[i % len(VOICE_COLORS)])
+            scope.set(_fit(triggered_window(chip.scope[i], tap, voice_span, voice_span), scope.n))
             self.env_bars[i].visible = self.env_tracks[i].visible = not muted
-        out = triggered_window(sid.scope_out, k, self.span, self.span // 2)
+        out = triggered_window(chip.scope_out, k, self.span, self.span // 2)
         self.out_scope.set(_fit(out * 2.0, self.out_scope.n))
 
-        state = player.state_at(pos)
-        if state:
-            self._show_registers(player, *state)
+        if readout.voices:
+            self._show_readout(player, readout)
 
-    def _show_registers(self, player: Player, regs: bytes, envs) -> None:
-        sid, clock = player.sid, player.tune.clock
-        for i in range(3):
-            r = regs[7 * i:7 * i + 7]
-            freq = r[0] | r[1] << 8
-            pw = r[2] | (r[3] & 15) << 8
-            ctrl, ad, sr = r[4], r[5], r[6]
-            hz = freq * clock / 16777216
-            waves = "+".join(n for bit, n in WAVE_NAMES if ctrl >> 4 & bit) or "----"
-            flags = " ".join(f for bit, f in ((1, "GATE"), (2, "SYNC"), (4, "RING"), (8, "TEST"))
-                             if ctrl & bit)
+    def _show_readout(self, player: Player, readout) -> None:
+        mute = player.chip.mute
+        for i, (texts, level) in enumerate(zip(readout.voices, readout.levels)):
             name, lines = self.voice_labels[i]
-            self._set(name, f"VOICE {i + 1}" + ("   [muted]" if sid.mute[i] else ""))
-            texts = [f"{note_name(hz) if freq else '---':<10} {hz:8.1f} Hz",
-                     f"{waves:<12} PW {100 * pw / 4095:5.1f}%",
-                     f"A {ad >> 4:X} D {ad & 15:X} S {sr >> 4:X} R {sr & 15:X}   env {envs[i]:3d}",
-                     flags or "-"]
+            self._set(name, f"{player.voice_label} {i + 1}" + ("   [muted]" if mute[i] else ""))
             for label, text in zip(lines, texts):
                 self._set(label, text)
-            self.env_bars[i].width = self.env_w * envs[i] / 255
-        fc = (regs[0x15] & 7) | regs[0x16] << 3
-        res, routing, mode = regs[0x17] >> 4, regs[0x17] & 7, regs[0x18]
-        modes = "".join(n for bit, n in ((0x10, "LP "), (0x20, "BP "), (0x40, "HP ")) if mode & bit)
-        routed = "".join(str(v + 1) for v in range(3) if routing >> v & 1) or "-"
-        texts = [f"VOL {mode & 15:<2d}  {modes or 'no filter'}" + ("  3OFF" if mode & 0x80 else ""),
-                 f"FC {fc:<4d} {sid.f0[fc]:5.0f}Hz RES {res:X}  in {routed}"]
-        for label, text in zip(self.global_labels, texts):
+            self.env_bars[i].width = self.env_w * min(max(level, 0.0), 1.0)
+        for label, text in zip(self.global_labels, readout.chip):
             self._set(label, text)
 
     def draw(self) -> None:
         self.batch.draw()
-
-
-def chip_line(player: Player) -> str:
-    tune = player.tune
-    return (f"{tune.magic} · {'PAL' if tune.is_pal else 'NTSC'} · MOS {player.model} · "
-            f"filter {'on' if player.sid.filter_enabled else 'off'}")
 
 
 class Visualizer(pyglet.window.Window):
@@ -258,50 +253,51 @@ class Visualizer(pyglet.window.Window):
 
     def __init__(self, player: Player, latency: float = 0.4):
         from .audio import LivePlayback
-        w, h = WINDOW_LAYOUT
+        layout = window_layout(player.voices)
+        w, h = layout
         try:
             config = pyglet.gl.Config(sample_buffers=1, samples=4, double_buffer=True)
-            super().__init__(w, h, caption=f"numsid - {player.tune.name}", config=config)
+            super().__init__(w, h, caption=f"numsid - {player.title}", config=config)
         except pyglet.window.NoSuchConfigException:
-            super().__init__(w, h, caption=f"numsid - {player.tune.name}")
+            super().__init__(w, h, caption=f"numsid - {player.title}")
         glClearColor(*(c / 255 for c in BG), 1.0)
         self.player = player
         self.live = LivePlayback(player, latency)
         # On HiDPI screens pyglet's "platform" mode hands us a larger canvas.
-        self.dash = Dashboard(player, self.get_size()[0], WINDOW_LAYOUT, max_points=700)
+        self.dash = Dashboard(player, self.get_size()[0], layout, max_points=700)
         self.live.play()
         pyglet.clock.schedule_interval(self.update, 1 / 60)
 
     def update(self, dt: float) -> None:
         self.dash.update(self.player, self.live.position, paused=not self.live.media.playing,
-                         status2=f"{chip_line(self.player)} · emulation "
-                                 f"{100 * self.live.cpu_load():.0f}% CPU")
+                         status2=self.player.chip_line(),
+                         status3=f"emulation {100 * self.live.cpu_load():.0f}% CPU")
 
     def on_draw(self) -> None:
         self.clear()
         self.dash.draw()
 
     def on_key_press(self, symbol, modifiers) -> None:
-        player, sid = self.player, self.player.sid
-        songs = player.tune.songs
+        player = self.player
         if symbol == key.ESCAPE:
             self.close()
         elif symbol in (key.RIGHT, key.UP, key.PLUS, key.NUM_ADD):
-            self.live.select(player.song % songs + 1)
+            self.live.skip(+1)
         elif symbol in (key.LEFT, key.DOWN, key.MINUS, key.NUM_SUBTRACT):
-            self.live.select((player.song - 2) % songs + 1)
-        elif symbol in (key._1, key._2, key._3):
+            self.live.skip(-1)
+        elif key._1 <= symbol <= key._9 and symbol - key._1 < player.voices:
             i = symbol - key._1
             with self.live.source.lock:
-                sid.mute[i] = not sid.mute[i]
+                player.chip.mute[i] = not player.chip.mute[i]
         elif symbol == key.SPACE:
             self.live.toggle_pause()
         elif symbol == key.F:
             with self.live.source.lock:
-                sid.filter_enabled = not sid.filter_enabled
+                player.chip.filter_enabled = not player.chip.filter_enabled
         elif symbol == key.M:
+            models = player.models
             with self.live.source.lock:
-                player.set_model("8580" if player.model == "6581" else "6581")
+                player.set_model(models[(models.index(player.model) + 1) % len(models)])
             self.live.media.seek(0.0)
 
     def on_close(self) -> None:

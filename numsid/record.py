@@ -24,10 +24,8 @@ from pyglet.gl import (GL_COLOR_BUFFER_BIT, GL_DRAW_FRAMEBUFFER, GL_FRAMEBUFFER,
 from pyglet.image.buffer import Framebuffer, Renderbuffer
 from pyglet.math import Mat4
 
-from .gui import BG, VIDEO_LAYOUT, WINDOW_LAYOUT, Dashboard, chip_line
+from .gui import BG, VIDEO_LAYOUT, Dashboard, window_layout
 from .player import Player, write_wav
-
-CREDIT = "numsid  ·  6502 CPU and SID chip emulated cycle by cycle in Python + numpy"
 
 
 class Offscreen:
@@ -88,16 +86,16 @@ class _Timeline:
 
 
 def screenshot(player: Player, path: str | Path, at: float, *, width: int = 1960,
-               layout=WINDOW_LAYOUT, footer: str | None = None) -> None:
+               layout=None, footer: str | None = None) -> None:
     """Save a PNG of the visualiser `at` seconds into the current song."""
+    layout = layout or window_layout(player.voices)
     h = round(width * layout[1] / layout[0])
     off = Offscreen(width, h)
     try:
-        kwargs = {} if footer is None else {"footer": footer}
-        dash = Dashboard(player, width, layout, max_points=1600, line_width=1.4, **kwargs)
+        dash = Dashboard(player, width, layout, max_points=1600, line_width=1.4, footer=footer)
         timeline = _Timeline(player)
         timeline.advance(at)
-        dash.update(player, at, status2=chip_line(player))
+        dash.update(player, at, status2=player.chip_line())
         rgba = np.frombuffer(off.render(dash.draw), dtype=np.uint8).reshape(h, width, 4).copy()
     finally:
         off.close()
@@ -115,7 +113,7 @@ def record_video(player: Player, path: str | Path, seconds: float, *, fps: int =
     w, h = size
     nframes = int(round(seconds * fps))
     off = Offscreen(w, h)
-    dash = Dashboard(player, w, VIDEO_LAYOUT, footer=CREDIT, progress=True,
+    dash = Dashboard(player, w, VIDEO_LAYOUT, footer=player.credit, progress=True,
                      max_points=1600, line_width=1.6)
     timeline = _Timeline(player)
     tmpdir = Path(tempfile.mkdtemp(prefix="numsid-video-"))
@@ -137,7 +135,7 @@ def record_video(player: Player, path: str | Path, seconds: float, *, fps: int =
             timeline.advance(t)
             brightness = min(1.0, t / fade_in if fade_in else 1.0,
                              (seconds - t) / min(fade_out, 2.0) if fade_out else 1.0)
-            dash.update(player, t, status2=chip_line(player), duration=seconds,
+            dash.update(player, t, status2=player.chip_line(), duration=seconds,
                         brightness=brightness)
             enc.stdin.write(off.render(dash.draw))
             if f % (fps * 5) == 0 and log:
@@ -154,7 +152,8 @@ def record_video(player: Player, path: str | Path, seconds: float, *, fps: int =
     audio = timeline.track(nframes / fps).astype(np.float64)
     if fade_out:
         n = min(len(audio), int(fade_out * player.sample_rate))
-        audio[-n:] *= 0.5 * (1 + np.cos(np.linspace(0, np.pi, n)))
+        fade = 0.5 * (1 + np.cos(np.linspace(0, np.pi, n)))
+        audio[-n:] *= fade if audio.ndim == 1 else fade[:, None]
     write_wav(wav, audio.astype(np.float32), player.sample_rate)
     subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", str(video_only), "-i", str(wav),
                     "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ac", "2",

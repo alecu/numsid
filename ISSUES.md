@@ -22,6 +22,7 @@ how many popular tunes they unlock.
 | F3: 8580 digi boost | small | `$D418` samples on the 8580 | done |
 | O1: VIC bad lines | medium | RSID busy-loop timing | done (sprite DMA open) |
 | O2: speed of sample-playing RSIDs | medium | headroom for live playback | open |
+| M1: survey of real MODs | medium | confidence in the ProTracker replayer | open |
 
 ## Fixed
 
@@ -260,6 +261,37 @@ How the fixes were verified:
   new mixer segment.
 * **Fix ideas:** build the per-cycle volume as one array instead of a
   segment per write, and make the scheduler loop leaner.
+
+### M1. MODs: only one real module checked end to end
+
+* **Status:** `axelf.mod` (a 15-sample SoundTracker module with no effects)
+  plays, and matches libopenmpt's timing and spectrum (see the README). Each
+  ProTracker effect and quirk is unit-tested against PT 2.3D's behaviour as
+  pt2-clone reproduces it, but no set of real modules has been surveyed yet.
+* **Next:** run a list of well-known modules (The Mod Archive's top-rated,
+  plus effect-heavy ones such as demo tunes using `E6x`, `EEx`, `9xx` and
+  `EFx`) through numsid and libopenmpt and compare envelopes, as was done
+  for axelf.mod.
+
+### M2. MODs: everything plays with ProTracker 2.3D semantics
+
+* **Affects:** multichannel modules (`6CHN`, `8CHN`, `xxCH`) written in PC
+  trackers, and modules made in other Amiga trackers. FastTracker 2 differs
+  from ProTracker in several effects (`9xx` past the sample end, `E6x`,
+  `Fxx` at 32, `8xx` panning, which PT ignores).
+* **SoundTracker:** 15-sample modules have their old effects mapped onto
+  PT's, as pt2-clone does. The SoundTracker version is guessed from the
+  effects a module uses, which can be wrong.
+
+### M3. MODs: Paula details not modelled
+
+* PAL only: an NTSC Amiga's colour clock is 3,579,545 Hz, and vblank-timed
+  players run at 60 Hz there.
+* The short delay between a DMA start and the first byte is not modelled,
+  nor is the volume PWM.
+* Periods below 113 are clamped, as in pt2-clone. On hardware the DMA can't
+  fetch fast enough and words get repeated.
+* `E8x` (Karplus-Strong) is ignored, as pt2-clone does by default.
 
 ## Compatibility table
 

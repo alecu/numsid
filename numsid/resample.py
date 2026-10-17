@@ -139,13 +139,14 @@ class Resampler:
             y += xr[q:q + m] @ self.h1_poly[q]
         return y
 
-    def process(self, x: list) -> list[np.ndarray]:
+    def process(self, x: list, n: int | None = None) -> list[np.ndarray]:
         """Feed one array (or None for silence) per channel at the SID clock.
         Returns one float32 array per channel at the output rate, with as many
-        samples as can be computed so far."""
-        n = next((len(a) for a in x if a is not None), None)
+        samples as can be computed so far.  `n`, the input length, is needed
+        only when every channel is None."""
+        n = next((len(a) for a in x if a is not None), n)
         if n is None:
-            raise ValueError("at least one channel must carry samples")
+            raise ValueError("at least one channel must carry samples, or pass n")
         x1 = [np.concatenate((self.buf2[c], self._stage1(c, x[c], n)))
               for c in range(self.channels)]
         s_end = self.s0 + len(x1[0])

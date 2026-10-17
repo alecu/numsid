@@ -8,3 +8,5 @@ __pycache__/
 *.sid
 .DS_Store
 sids/
+*.mod
+mods/
