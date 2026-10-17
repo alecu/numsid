@@ -8,7 +8,7 @@ latches when it runs out, and the period and volume are read whenever the
 next byte is output.
 """
 
-from numsid.paula import BIN, MIN_PERIOD
+from numsid.amiga.paula import BIN, MIN_PERIOD
 
 
 class RefChannel:

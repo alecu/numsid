@@ -3,8 +3,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from numsid import psid
-from numsid.player import SIDPlayer as Player, write_wav
+from numsid.c64 import psid
+from numsid.c64.player import SIDPlayer as Player
+from numsid.player import write_wav
 
 TUNE = Path(__file__).resolve().parent.parent / "sids" / "Commando.sid"
 pytestmark = pytest.mark.skipif(not TUNE.exists(), reason="sids/Commando.sid not present")
@@ -54,7 +55,7 @@ def test_8580_and_rates(tmp_path):
 
 
 def test_song_length():
-    from numsid.player import song_length
+    from numsid.tunes import song_length
     tune = psid.load(TUNE)
     length, kind = song_length(tune, 2, max_seconds=200)
     assert kind == "loop" and length == pytest.approx(61.3, abs=0.1)

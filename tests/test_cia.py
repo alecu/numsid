@@ -1,9 +1,9 @@
 import numpy as np
 
-from numsid.c64 import C64
-from numsid.cia import CIA
-from numsid.player import SIDPlayer as Player
-from numsid.psid import PSIDFile
+from numsid.c64.cia import CIA
+from numsid.c64.machine import C64
+from numsid.c64.player import SIDPlayer as Player
+from numsid.c64.psid import PSIDFile
 
 
 def make_tune(code: bytes, play_offset: int, *, cia: bool, rsid: bool = False,
