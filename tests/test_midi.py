@@ -216,3 +216,13 @@ def test_theme_mid():
     assert m.length == pytest.approx(174.0, abs=0.5)
     assert detect(m)[0] == GM                        # a GM conversion, despite the MT-32 layout
     assert not m.warnings
+
+
+def test_mt32_info_names_patches_when_roms_are_present(tmp_path, capsys):
+    from numsid.mt32.control import factory_patch_names
+    path = tmp_path / "mt32.mid"
+    path.write_bytes(smf_bytes(track((0, b"\xc1\x10"), (0, b"\x91\x3c\x40"), (0, b"\x99\x24\x40"))))
+    assert main([str(path), "--info"]) == 0
+    out = capsys.readouterr().out
+    assert "for MT-32" in out
+    assert ("16 Harpsi 1" if factory_patch_names() else "patch 16") in out
