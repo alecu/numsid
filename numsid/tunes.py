@@ -8,6 +8,7 @@ from .amiga import modfile, protracker
 from .amiga.player import ModPlayer
 from .c64 import psid
 from .c64.player import SIDPlayer, sid_song_length
+from .midi import smf
 from .player import Player
 
 
@@ -16,14 +17,19 @@ class TuneError(ValueError):
 
 
 def load_tune(path: str | Path):
-    """A PSIDFile or a ModFile, by the file's contents."""
+    """A PSIDFile, a ModFile or a MidiFile, by the file's contents."""
     blob = Path(path).read_bytes()
     if blob[:4] in (b"PSID", b"RSID"):
         return psid.parse(blob)
+    if blob[:4] == b"MThd" or (blob[:4] == b"RIFF" and blob[8:12] == b"RMID"):
+        try:
+            return smf.parse(blob, str(path))
+        except smf.MidiFileError as exc:
+            raise TuneError(f"{path}: {exc}") from None
     try:
         return modfile.parse(blob, str(path))
     except modfile.NotAModError:
-        raise TuneError(f"{path}: not a PSID/RSID file or a MOD") from None
+        raise TuneError(f"{path}: not a PSID/RSID file, a MOD or a MIDI file") from None
     except modfile.ModFileError as exc:
         raise TuneError(f"{path}: {exc}") from None
 
@@ -35,6 +41,13 @@ def open_player(tune, song: int | None = None, **kwargs) -> "Player":
         tune = load_tune(tune)
     separation = kwargs.pop("separation", None)        # MOD only
     digi_boost = kwargs.pop("digi_boost", None)        # SID only
+    if isinstance(tune, smf.MidiFile):
+        from .midi.player import MidiPlayer
+        from .mt32.roms import RomError
+        try:
+            return MidiPlayer(tune, float(song or 0), **kwargs)
+        except RomError as exc:
+            raise TuneError(str(exc)) from None
     if isinstance(tune, modfile.ModFile):
         if separation is not None:
             kwargs["separation"] = separation
@@ -50,6 +63,8 @@ def song_length(tune, song: int | None = None, max_seconds: float = 600.0, **kwa
     its loop, or (seconds, "end") for one that stops.  None if neither is
     found within `max_seconds`.  For a MOD, `song` is the starting order
     position, and the replayer's own bookkeeping gives an exact answer."""
+    if isinstance(tune, smf.MidiFile):
+        return tune.length + 2.0, "end"          # let the last notes ring
     if isinstance(tune, modfile.ModFile):
         return protracker.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     return sid_song_length(tune, song or tune.start_song, max_seconds, **kwargs)

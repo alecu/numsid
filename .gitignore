@@ -10,3 +10,8 @@ __pycache__/
 sids/
 *.mod
 mods/
+/midi/
+/roms/
+*.mid
+*.rom
+*.sf2
