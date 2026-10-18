@@ -233,8 +233,8 @@ go into `docs/midi.md` and `docs/mt32.md`, replacing this plan.
 | 1 | SMF parser, sequencer, detection, `--info` for MIDI files; media gitignored | **done**: `--info theme.mid` lists tracks, channels, GM instruments and length |
 | 2 | ROM loading, control ROM tables, PCM decode, GM-to-MT-32 map | **done**: `--info` names the MT-32 timbres theme.mid would use |
 | 3 | LA32 partials, envelopes, parts and partial allocation | **done**: the LA32 measured against Munt (see [mt32.md](mt32.md)); theme.mid within about 1 dB of Munt, channel by channel |
-| 4 | Reverb, DAC, live playback, the 9-part visualiser, `--video` | **theme.mid plays live on an MT-32** |
-| 5 | SysEx, LCD, CM-32L | MT-32-native files with custom timbres (**SysEx done**: patch, timbre, rhythm and system writes) |
+| 4 | Reverb, DAC, live playback, the 9-part visualiser, `--video` | **done** except the DAC quirk: theme.mid plays live on an MT-32, reverb measured (see [mt32.md](mt32.md#the-reverb)) |
+| 5 | SysEx, LCD, CM-32L | MT-32-native files with custom timbres (**SysEx and LCD done**; CM-32L sound effects to do) |
 | 6 | SoundFont 2 GM synth | theme.mid and the rest as authored, on a GM SoundFont |
 | 7 | MT-32-to-GM map | MT-32-native files on the GM synth |
 

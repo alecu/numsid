@@ -102,8 +102,8 @@ parts and the rhythm part.
 
 The sounds come from the real ROM data, shaped the way the MT-32's LA32
 chip was measured to shape them; MT-32 SysEx (custom timbres, patches,
-rhythm setup, reverb) is understood. The reverb is still a stand-in for
-the real one (`F` or `--no-filter` turns it off). See
+rhythm setup, reverb) is understood, and the reverb's four modes were
+measured too (`F` or `--no-filter` turns it off). See
 [MIDI on the MT-32](docs/mt32.md) and the [plan](docs/midi-plan.md).
 
 ### Videos and screenshots

@@ -192,16 +192,33 @@ def test_theme_plays_and_is_deterministic():
 
 
 def test_reverb_tail_and_blocks():
-    from numsid.mt32.reverb import HALL, ROOM, TAP_DELAY, Reverb
-    for mode in (ROOM, HALL, TAP_DELAY):
-        r = Reverb(mode, 5, 7)
-        imp = np.zeros(128, dtype=np.float32)
-        imp[0] = 1.0
-        outs = [r.process(imp, imp)[0]]
-        silence = np.zeros(128, dtype=np.float32)
-        outs += [r.process(silence, silence)[0] for _ in range(400)]
-        y = np.concatenate(outs)
-        assert not y[:200].any()                       # no direct sound, delays first
+    from numsid.mt32.reverb import HALL, PLATE, ROOM, TAP_DELAY, Reverb
+
+    def response(mode, time, level=7, block=128, n=51200):
+        r = Reverb(mode, time, level)
+        x = np.zeros(n, dtype=np.float32)
+        x[0] = 1.0
+        return np.concatenate([r.process(x[i:i + block], x[i:i + block])[0]
+                               for i in range(0, n, block)])
+    for mode in (ROOM, HALL, PLATE, TAP_DELAY):
+        y = response(mode, 5)
+        assert not y[:100].any()                       # no direct sound, delays first
         assert np.abs(y[3000:16000]).max() > 1e-3      # a tail
         assert np.abs(y[-4000:]).max() < np.abs(y[3000:16000]).max()   # that decays
-    assert not Reverb(ROOM, 5, 0).process(imp, imp)[0].any()          # level 0: dry
+        assert np.allclose(y, response(mode, 5, block=100), atol=1e-6)  # any block size
+    # the room's first echo on the left, as measured: 1263 samples, after the
+    # input filters and allpasses
+    y = response(ROOM, 5)
+    assert np.abs(y[:1263]).max() < 0.02 * np.abs(y).max()
+    # a longer time decays more slowly; level 0 is quiet but not silent
+    assert np.abs(response(ROOM, 7)[-8000:]).max() > 10 * np.abs(response(ROOM, 1)[-8000:]).max()
+    quiet = response(ROOM, 5, level=0)
+    assert np.abs(quiet).max() == pytest.approx(np.abs(y).max() / 14, rel=0.01)
+    # tap delay: left at d, right at 2d
+    r = Reverb(TAP_DELAY, 5, 7)
+    x = np.zeros(128 * 80, dtype=np.float32)
+    x[0] = 1.0
+    out = [r.process(x[i:i + 128], x[i:i + 128]) for i in range(0, len(x), 128)]
+    left = np.concatenate([o[0] for o in out])
+    right = np.concatenate([o[1] for o in out])
+    assert np.argmax(np.abs(left)) == 3474 and np.argmax(np.abs(right)) == 6946
