@@ -22,6 +22,11 @@ note, waveform and ADSR readouts, and the mixed output](docs/screenshot.png)
 
 Playback is real time.
 
+The project also includes a ROM-booted PAL C64 for games and BASIC, with
+video decoded directly from memory by an OpenGL shader. See
+[the emulator guide](docs/emulator.md) for its architecture and current
+compatibility limits.
+
 ## Setup
 
 ```bash
@@ -41,6 +46,37 @@ thousands. The tests use `axelf.mod` (module
 there.
 
 ## Usage
+
+### C64 games and BASIC
+
+```bash
+# Uses the C64 ROMs inside the VICE tarball in Downloads, without extracting it.
+.venv/bin/python -m numsid c64 ~/Downloads/Commando*.zip
+
+# Boot to BASIC, or specify a ROM source explicitly.
+.venv/bin/python -m numsid c64
+.venv/bin/python -m numsid.c64 game.prg --roms ~/Downloads/vice-3.10.tar.gz
+```
+
+The ROM source may also be a directory containing `basic`, `kernal` and
+`chargen` (or VICE's corresponding `.bin` filenames). PRGs and ZIPs containing
+one PRG load directly; no disk drive is needed. ROMs and games are not included.
+
+For the downloaded **Hokuto Force +7** Commando release: wait through the
+decompression, press **Space** at the crack intro, **Esc** to skip the info
+linker, answer the trainer's **Y/N** prompts, then press **1** for Commando.
+At the game title, **Right Ctrl** starts the game and fires; **arrows** move
+and **Space** throws a grenade. **F10** switches joystick ports (default 2),
+**F9** pauses, **F11** toggles fullscreen, and **F12** is RESTORE. Close the
+window to quit; Esc is the C64's RUN/STOP key.
+
+CRT scanlines, a subtle phosphor grille and glow are enabled by default.
+**Ctrl+F11** toggles the effect, or start with `--no-crt` for sharp pixels.
+The display expands to the window while preserving its aspect ratio.
+
+![Commando running on the Python C64, decoded from RAM by the VIC-II shader](docs/commando-game.png)
+
+### SID tunes
 
 ```bash
 .venv/bin/python -m numsid sids/Commando.sid                 # window + live audio
@@ -129,8 +165,9 @@ H.264 + AAC (BT.709), ready for YouTube.
 ## Limitations
 
 * One SID chip (no 2SID/3SID tunes).
-* No BASIC or character ROM, and only a stand-in KERNAL. Tunes that call
-  real ROM routines get a harmless return.
+* SID-file playback uses a stand-in KERNAL and no BASIC/character ROM.
+  The game emulator uses the user's real ROMs; its remaining hardware
+  limitations are listed in [the emulator guide](docs/emulator.md).
 * MODs play with PAL timing and ProTracker 2.3D semantics only.
 * MIDI files play on the MT-32 only; there is no General MIDI synth yet.
 

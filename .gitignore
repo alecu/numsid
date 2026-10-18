@@ -12,6 +12,9 @@ sids/
 mods/
 /midi/
 /roms/
+games/
+*.prg
+*.d64
 *.mid
 *.rom
 *.sf2

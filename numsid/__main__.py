@@ -22,6 +22,10 @@ MODELS = ("6581", "8580", "A500", "A1200", "MT-32", "CM-32L")
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "c64":
+        from .c64.__main__ import main as c64_main
+        return c64_main(argv[1:])
     ap = argparse.ArgumentParser(
         prog="numsid", description="Play C64 SID tunes and Amiga MODs, emulated in Python.")
     ap.add_argument("tune", help="PSID/RSID file, a ProTracker/SoundTracker MOD, or a MIDI file")
