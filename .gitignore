@@ -10,7 +10,11 @@ __pycache__/
 sids/
 *.mod
 mods/
-roms/
+/midi/
+/roms/
 games/
 *.prg
 *.d64
+*.mid
+*.rom
+*.sf2
