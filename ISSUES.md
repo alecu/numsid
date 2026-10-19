@@ -10,6 +10,10 @@ speakers for 30 s each, before live playback was dropped from the survey.
 Each entry says which tunes it affects, so the fixes can be prioritised by
 how many popular tunes they unlock.
 
+The Amiga entries (M1-M9) come from comparing real modules with libopenmpt:
+a list of famous demo and game modules, every PowerPacked one, and about
+200 MED songs from a large collection (M1). Their table is at the end.
+
 ## Suggested order
 
 | Fix | Effort | Unlocks | Status |
@@ -22,7 +26,12 @@ how many popular tunes they unlock.
 | F3: 8580 digi boost | small | `$D418` samples on the 8580 | done |
 | O1: VIC bad lines | medium | RSID busy-loop timing | done (sprite DMA open) |
 | O2: speed of sample-playing RSIDs | medium | headroom for live playback | open |
-| M1: survey of real MODs | medium | confidence in the ProTracker replayer | open |
+| M1: survey of real MODs | medium | confidence in the ProTracker replayer | done |
+| M4: soft limiter instead of hard clipping | small | 8 of the top modules clipped | fixed |
+| M5: PowerPacker | small | 24 packed files, Shadow of the Beast among them | done |
+| M6: MED and OctaMED | large | 198 songs, Cannon Fodder and Xenon 2 among them | done |
+| M7: MED synth instruments | medium | 16 songs | done |
+| M8: other Amiga formats (TFMX, ...) | large, each | Turrican II and about 174 more TFMX files | open |
 
 ## Fixed
 
@@ -236,6 +245,138 @@ How the fixes were verified:
   0.084 vs 0.094 RMS). `--no-digiboost` restores the authentic
   near-silence.
 
+### M1. Survey of real modules against libopenmpt (done)
+
+* **What was run:**
+  * the list of well-known demo and game modules below (the Amiga
+    compatibility table),
+  * every PowerPacked module,
+  * all 199 MED and OctaMED songs in a large collection.
+
+  Each was rendered by numsid and by libopenmpt 0.8.9 (`openmpt123` with
+  its Amiga resampler emulation, the A500 filter and hard panning), and
+  compared on:
+  * the loudness envelope in 25 ms frames, floored at −70 dB (timing
+    drift, and correlation over the first 30 s, or 60 s for the list),
+  * the overall level,
+  * the level in five frequency bands.
+* **ProTracker modules:** 27 of the 28 modules in the list play (Turrican II is TFMX, M8). Over their first minute the 25 ProTracker and StarTrekker ones keep the same timing as libopenmpt with no drift, their envelopes correlate at 0.91 to 1.00 (median 0.997), the overall level matches within 0.12 dB and every band within 0.7 dB, except in Agony (below). The 14 PowerPacked ProTracker modules match as closely.
+* **MED songs:** 198 of the 199 load (one file is truncated), and all of them play without errors. As numsid renders them, 134 correlate with libopenmpt at 0.95 or better and 155 at 0.90 or better (median 0.985). Most of the rest drift a little against libopenmpt because of how it rounds tick lengths (below); with that arithmetic emulated, 184 reach 0.95, 189 reach 0.90 (median 0.998), and none drifts. The lowest (0.83-0.90) are mostly dense, sustained mixes whose envelopes hardly move, where the correlation measures little more than how channels beat against each other. Seven of the nine lowest were checked track by track: every track matches at 0.88 or better, except one track of one MMD3 song (M9).
+* **Bugs found and fixed on the way:**
+  * MED files without an instrument-extension block had their loops
+    switched off.
+  * An instrument number without a note (MED's "hold" symbol) didn't keep
+    a held note going, which cut notes short in songs with hold/decay
+    instruments. Xmas 2DXtreme went from 0.25 to 0.93 on its worst track.
+  * Notes past B-7 weren't brought down 9 octaves, as OctaMED does.
+    MegaBall's title tune went from 0.77 to 0.96.
+  * Extra command pages were ignored, and with them a speed change in a
+    Bohemian Rhapsody remix (0.78 to 1.00).
+* **Where numsid and libopenmpt differ by design.** None of these is a
+  numsid bug; the comparisons allow for the first five.
+  * **Panning:** libopenmpt pans MOD channels 25/75 by default. The Amiga
+    pans them hard left/right, as numsid does. Comparisons use
+    `--stereo 200`.
+  * **DC:** libopenmpt keeps DC. Off-centre samples and synth waveforms
+    leave an offset in its output that an Amiga's coupling capacitor
+    (numsid's 5 Hz high-pass) removes. Both sides are high-passed at 20 Hz
+    before comparing.
+  * **MED filter flag:** libopenmpt ignores it, so it plays without the
+    LED filter what OctaMED plays with it (about −10 dB above 4 kHz,
+    −23 dB above 8 kHz). Those songs are compared with numsid's filter
+    off.
+  * **Song end:** libopenmpt ignores MED's end-of-song command `FFE` and
+    plays a song once. numsid stops at `FFE` and otherwise loops. Game
+    soundtracks often put several tunes in one file, separated by `FFE`.
+    Comparisons stop at the song's end.
+  * **Tick timing:** libopenmpt rounds MED tempo commands (`Fxx`) to a
+    whole BPM, and renders every tick as a whole number of output samples,
+    computed from a tempo held to 1/10000 BPM. Examples:
+    * Peace 4 a Nation's `F1A` (98.48 BPM) plays at 98, 0.5% slow.
+    * At the fast tempos of Hired Guns (up to 792 BPM, 3.2 ms ticks) the
+      truncation makes it up to 0.65% fast.
+
+    numsid keeps the exact rates, which an Amiga's CIA timer would give to
+    within a cycle. The second set of MED figures above emulates
+    libopenmpt's arithmetic.
+  * **MED level:** libopenmpt plays 4-channel MED songs about 6 dB quieter
+    than MODs. numsid gives both the same level, Paula's.
+  * **LED filter strength:** Agony's intro, the one module in the list
+    that switches the LED filter on (`E00`), is 4.5 dB duller above 8 kHz
+    in numsid than in libopenmpt. numsid's filter is the A500's Sallen-Key
+    circuit (3.09 kHz, Q 0.66). Which of the two is closer to a real
+    machine is not settled.
+
+### M4. MOD output clipped hard (fixed)
+
+* **Affects:** 8 of the 24 playable modules in the survey list: Desert
+  Dream 1a, Stardust Memories, Livin' Insanity, Lotus 2, Turrican, Pinball
+  Fantasies, Pinball Dreams and Blood Money. Peaks reached 1.19 (Blood
+  Money's intro), and Lotus 2 had 6,666 samples past full scale in its
+  first minute.
+* **Cause:** two loud channels on one side already reach full scale, and
+  the output high-pass shifts a loud waveform off centre, which takes its
+  peaks further. That happens on the real machine too, in its analogue
+  stages, but numsid then clipped the result to ±1.0.
+* **Not the cause:** numsid's level. It first looked 1.9 dB louder than
+  libopenmpt, but that came from libopenmpt's default 25/75 panning; with
+  hard panning on both, the levels match within 0.4 dB.
+* **Fix:** a soft limiter in place of the hard clip. Below 90% of full
+  scale the signal is untouched. Above it, a tanh curve whose slope is
+  continuous at the knee squeezes the rest into the last tenth. None of
+  the 8 modules has a hard-clipped sample now (Lotus 2 peaks at 0.993,
+  Blood Money at 0.9994), and the match with libopenmpt is unchanged.
+
+### M5. PowerPacker files (done)
+
+* **Affects:** 27 files in the collection, among them Shadow of
+  the Beast. 14 are ProTracker modules and 13 (3 of them in the old MED 2/3 format, which isn't supported) are MED songs.
+* **Fix:** `numsid/powerpacker.py` unpacks `PP20` files before the format
+  is detected. The bit stream is read backwards, and the output is rebuilt
+  from its last byte to its first, out of literal runs and copies of bytes
+  already written. All 27 unpack, in under 0.2 s each; the 14
+  ProTracker ones match libopenmpt (which reads PP20 itself) with zero
+  timing drift and levels within 0.25 dB. Tests round-trip data through a
+  small encoder written for them.
+* **Not supported:** XPK-packed files (`XPKF`) and encrypted PowerPacker
+  files.
+
+### M6. MED and OctaMED songs (done)
+
+* **Affects:** 199 songs in the collection (139 MMD1, 48 MMD0, 6 MMD2, 5 MMD3), among
+  them Cannon Fodder and Xenon 2's Megablast. 162 have 4 tracks, 31 have 8 and 5 have 7, 9 or 10.
+* **Fix:** a loader for MMD0 to MMD3 (`numsid/medfile.py`) and a MED
+  replay routine (`numsid/med.py`) that drives Paula like the ProTracker
+  one. It covers:
+  * MED's tempo units (`SPD`, SoundTracker-compatible, BPM mode and the
+    8-channel tempos),
+  * blocks of any length,
+  * note numbering and the octave wrap of 4-channel songs,
+  * multi-octave IFF instruments,
+  * track and master volumes,
+  * hex and decimal volumes,
+  * first-tick slides,
+  * hold/decay envelopes and hold symbols,
+  * the effect commands.
+
+  The semantics follow libopenmpt's MED loader.
+* **Result:** see M1 and the table below. Cannon Fodder matches
+  libopenmpt at 1.000 and Megablast at 0.983 over a minute, with zero
+  timing drift.
+
+### M7. MED synthetic and hybrid instruments (done)
+
+* **Affects:** 16 songs, among them Civilization and Bart
+  Simpson, which were nearly silent without them.
+* **Fix:** each note runs the instrument's two tables, stepped every
+  `speed` ticks: the volume table (set and ramp the volume, follow an
+  envelope read from a waveform, wait, jump, hold then decay) and the
+  waveform table (pick a waveform, ramp the pitch, arpeggio, vibrato,
+  wait, jump). A new waveform goes to Paula's location and length latches,
+  so it takes over when the current one ends, as on the real machine.
+* **Result:** Bart Simpson matches libopenmpt at 0.963; Civilization's
+  four tracks at 0.90-1.00 each.
+
 ## Open
 
 ### O1. VIC bad lines (done for RSIDs) and sprite DMA (open)
@@ -262,17 +403,6 @@ How the fixes were verified:
 * **Fix ideas:** build the per-cycle volume as one array instead of a
   segment per write, and make the scheduler loop leaner.
 
-### M1. MODs: only one real module checked end to end
-
-* **Status:** `axelf.mod` (a 15-sample SoundTracker module with no effects)
-  plays, and matches libopenmpt's timing and spectrum (see the README). Each
-  ProTracker effect and quirk is unit-tested against PT 2.3D's behaviour as
-  pt2-clone reproduces it, but no set of real modules has been surveyed yet.
-* **Next:** run a list of well-known modules (The Mod Archive's top-rated,
-  plus effect-heavy ones such as demo tunes using `E6x`, `EEx`, `9xx` and
-  `EFx`) through numsid and libopenmpt and compare envelopes, as was done
-  for axelf.mod.
-
 ### M2. MODs: everything plays with ProTracker 2.3D semantics
 
 * **Affects:** multichannel modules (`6CHN`, `8CHN`, `xxCH`) written in PC
@@ -293,7 +423,50 @@ How the fixes were verified:
   fetch fast enough and words get repeated.
 * `E8x` (Karplus-Strong) is ignored, as pt2-clone does by default.
 
-## Compatibility table
+### M8. Other Amiga music formats
+
+* **Affects:** in the collection used for the survey, about 174 TFMX files
+  (among them Turrican II, the one module of the top list that doesn't
+  play), XPK-packed files (`XPKF`), Oktalyzer, Future Composer and
+  SoundMon songs, the old pre-MMD `MED` format (3 PowerPacked files),
+  executables with built-in replayers, and the many custom formats
+  DeliTracker plays.
+* **What it takes:** each is its own replay routine (TFMX is a large one,
+  with its own macro language); XPK is a family of packers. They would
+  slot in like the MED replayer, driving the same Paula.
+
+### M9. MED: what the replayer doesn't do
+
+* MIDI instruments and packed (ADPCM) samples stay silent, with a warning.
+* The play-sequence stop/jump commands of MMD2/MMD3 are ignored, with a
+  warning.
+* Extra command pages (more effect columns) are read. Their one-off
+  commands all act, but only one effect per track runs on every tick: the
+  main column's, or the first page's when the main column is empty.
+* OctaMED's 5-8 channel mode mixes two tracks into each Paula channel in
+  software; numsid gives every track its own channel instead (as
+  libopenmpt does), so those songs sound cleaner than on the machine.
+* Songs made for OctaMED's software mixing (`MMD2`/`MMD3` with the mix
+  flag) can ask for pitches that Paula can't play; numsid clamps periods
+  at 113.
+* MMD2/MMD3 track panning, echo and stereo separation settings are
+  ignored: tracks are panned the Amiga way.
+* The conversions follow libopenmpt's reading of the format: MED tempo
+  to timer rate, the hold-symbol behaviour, the octave rules for very
+  high notes. They have not been checked against OctaMED's own player
+  code or a real Amiga.
+* `FFE` stops the song, as in OctaMED. Game soundtracks that hold several
+  tunes separated by `FFE` (Roadkill has 14) play only the first; `←/→`
+  and `--pos` reach the others.
+* **Not understood yet:** in one MMD3 song (Oasis, "Wonder Remix Wall"),
+  track 3 plays a long one-shot square-wave sample, a new note every two
+  lines. libopenmpt fades each note within its line, by 3-8 dB from note
+  to note, with or without its Amiga resampler. numsid plays each one at
+  the sample's own level. Nothing in the instrument's data (type, loop,
+  extension fields) explains the fade. The other 197 MED songs show no
+  such difference.
+
+## Compatibility table: HVSC Top 100
 
 **Summary:** 100 of 100 work. Results include all fixes up to B4/F3. Tunes marked as heard were played during the original survey, before the later fixes; Arkanoid, Savage, BMX Kidz and Nightdawn were confirmed by ear afterwards, on both chips.
 
@@ -399,3 +572,38 @@ How the fixes were verified:
 | 98 | Crazy Comets (remix) | Johannes Bjerregaard | ✅ works |  |
 | 99 | Terra Cresta | Martin Galway | ✅ works |  |
 | 100 | Tetris | Wally Beben | ✅ works | RSID, plays with NMI samples (F1) |
+
+## Compatibility table: Amiga modules
+
+**Summary:** 27 of 28 work. The list is the one the survey started from: famous demo and game modules. Match is the correlation of the loudness envelopes with libopenmpt's rendering over the first minute (M1).
+
+| # | Module | Format | Result | Match with libopenmpt | Notes |
+|---|--------|--------|--------|-----------------------|-------|
+| 1 | Space Debris | ProTracker `M.K.` | ✅ works | 0.997, no drift (60 s) |  |
+| 2 | Desert Dream 1a | ProTracker `M.K.` | ✅ works | 0.997, no drift (60 s) | clipped before M4 (peak 1.01) |
+| 3 | Desert Dream 1b | ProTracker `M.K.` | ✅ works | 0.979, no drift (60 s) |  |
+| 4 | Desert Dream 1c | ProTracker `M.K.` | ✅ works | 0.999, no drift (60 s) |  |
+| 5 | Desert Dream 1d | ProTracker `M.K.` | ✅ works | 0.998, no drift (47 s) |  |
+| 6 | Desert Dream 1e | ProTracker `M.K.` | ✅ works | 1.000, no drift (16 s) |  |
+| 7 | Cream of the Earth | ProTracker `M.K.` | ✅ works | 0.998, no drift (60 s) |  |
+| 8 | Guitar Slinger | ProTracker `M.K.` | ✅ works | 0.995, no drift (60 s) |  |
+| 9 | Physical Presence | ProTracker `M.K.` | ✅ works | 0.909, no drift (60 s) |  |
+| 10 | 4Mat's Madness | ProTracker `M.K.` | ✅ works | 0.993, no drift (60 s) |  |
+| 11 | Stardust Memories | ProTracker `M.K.` | ✅ works | 0.998, no drift (60 s) | clipped before M4 (peak 1.04) |
+| 12 | Livin' Insanity | ProTracker `M.K.` | ✅ works | 0.997, no drift (60 s) | clipped before M4 (peak 1.03); ends after 189 s |
+| 13 | Elysium | StarTrekker `FLT4` | ✅ works | 0.997, no drift (60 s) |  |
+| 14 | Global Trash III | ProTracker `M.K.` | ✅ works | 0.974, no drift (60 s) |  |
+| 15 | Lotus Turbo Challenge 2 (title) | ProTracker `M.K.` | ✅ works | 0.999, no drift (60 s) | clipped before M4 (peak 1.07) |
+| 16 | Agony (intro) | ProTracker `M.K.` | ✅ works | 0.999, no drift (60 s) | uses the LED filter: duller above 8 kHz than libopenmpt (M1) |
+| 17 | Turrican II (TFMX) | TFMX | ❌ not supported | | another replayer format (M8) |
+| 18 | Turrican (MOD) | ProTracker `M.K.` | ✅ works | 0.998, no drift (60 s) | clipped before M4 (peak 1.01) |
+| 19 | Gods (Into the Wonderful) | ProTracker `M.K.` | ✅ works | 0.997, no drift (60 s) | the same song as the other Gods entry, in a slightly different rip |
+| 20 | Gods (in game) | ProTracker `M.K.` | ✅ works | 0.997, no drift (60 s) | the same song as the other Gods entry, in a slightly different rip |
+| 21 | Pinball Fantasies 1 | ProTracker `M.K.` | ✅ works | 0.998, no drift (60 s) | clipped before M4 (peak 1.14) |
+| 22 | Pinball Dreams 1 | ProTracker `M.K.` | ✅ works | 0.999, no drift (60 s) | clipped before M4 (peak 1.07) |
+| 23 | Cannon Fodder | MED `MMD0` | ✅ works | 1.000, no drift (60 s) | plays since M6; ends after 150 s |
+| 24 | Xenon 2 Megablast | OctaMED `MMD1` | ✅ works | 0.998, no drift (60 s) | plays since M6 |
+| 25 | Shadow of the Beast | StarTrekker `FLT4` | ✅ works | 0.997, no drift (60 s) | PowerPacked, unpacked on load (M5); plays since M5 |
+| 26 | Magic Pockets | ProTracker `M.K.` | ✅ works | 0.990, no drift (60 s) |  |
+| 27 | Blood Money (intro) | ProTracker `M.K.` | ✅ works | 0.996, no drift (60 s) | clipped before M4 (peak 1.19) |
+| 28 | Blood Money (in game) | ProTracker `M.K.` | ✅ works | 0.995, no drift (60 s) |  |

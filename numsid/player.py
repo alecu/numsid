@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import struct
 import wave
 from collections import deque
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import modfile, protracker, psid
+from . import med, medfile, modfile, powerpacker, protracker, psid
 from .c64 import C64
 from .paula import Paula
 from .sid import SID
@@ -30,15 +31,46 @@ class TuneError(ValueError):
     pass
 
 
+KNEE = 0.9          # soft limiter: identity below this, approaches 1.0 above
+
+
+def soft_limit(x: np.ndarray) -> np.ndarray:
+    """Bound x to [-1, 1] in place without hard clipping.  Below KNEE the
+    signal is untouched; above it a tanh curve, continuous in slope at the
+    knee, squeezes the rest into the last tenth of the range.  An Amiga's
+    analogue stages lift peaks past full scale whenever the output
+    high-pass shifts a loud waveform off centre, which would otherwise be
+    clipped hard."""
+    over = np.abs(x) > KNEE
+    if over.any():
+        v = x[over]
+        room = 1.0 - KNEE
+        x[over] = np.sign(v) * (KNEE + room * np.tanh((np.abs(v) - KNEE) / room))
+    return x
+
+
 def load_tune(path: str | Path):
-    """A PSIDFile or a ModFile, by the file's contents."""
+    """A PSIDFile or a ModFile, by the file's contents.  PowerPacked files
+    are decrunched first."""
     blob = Path(path).read_bytes()
+    if powerpacker.is_crunched(blob):
+        try:
+            blob = powerpacker.decrunch(blob)
+        except powerpacker.PowerPackerError as exc:
+            raise TuneError(f"{path}: {exc}") from None
     if blob[:4] in (b"PSID", b"RSID"):
         return psid.parse(blob)
+    if medfile.is_med(blob):
+        try:
+            return medfile.parse(blob, str(path))
+        except (modfile.ModFileError, struct.error) as exc:
+            raise TuneError(f"{path}: {exc}") from None
+    if blob[:4] == b"MED\x04":
+        raise TuneError(f"{path}: a song in the old MED 2/3 format, which isn't supported")
     try:
         return modfile.parse(blob, str(path))
     except modfile.NotAModError:
-        raise TuneError(f"{path}: not a PSID/RSID file or a MOD") from None
+        raise TuneError(f"{path}: not a PSID/RSID file, MOD or MED song") from None
     except modfile.ModFileError as exc:
         raise TuneError(f"{path}: {exc}") from None
 
@@ -123,7 +155,7 @@ class Player:
         out = chip.take(n)
         if self.gain != 1.0:
             out *= self.gain
-        np.clip(out, -1.0, 1.0, out=out)
+        soft_limit(out)
         self.samples_played += n
         return out
 
@@ -274,14 +306,13 @@ class ModPlayer(Player):
     info_lines = 3
     models = ("A500", "A1200")
     skip_label = "position"
-    credit = "numsid  ·  ProTracker replayer and Amiga Paula chip emulated in Python + numpy"
 
     def __init__(self, tune: modfile.ModFile | str | Path, position: int = 0, *,
                  sample_rate: int = 44100, model: str | None = None,
                  filter_enabled: bool = True, gain: float = 1.0, scope_rate: int = 0,
                  separation: float = 1.0):
         super().__init__(sample_rate, gain, scope_rate)
-        self.tune = tune if isinstance(tune, modfile.ModFile) else modfile.load(tune)
+        self.tune = tune if isinstance(tune, modfile.ModFile) else load_tune(tune)
         self.model = model or "A500"
         self.separation = separation
         self.paula = self._paula(filter_enabled)
@@ -295,6 +326,15 @@ class ModPlayer(Player):
     @property
     def chip(self) -> Paula:
         return self.paula
+
+    @property
+    def is_med(self) -> bool:
+        return isinstance(self.tune, medfile.MedFile)
+
+    @property
+    def credit(self) -> str:
+        engine = "MED" if self.is_med else "ProTracker"
+        return f"numsid  ·  {engine} replayer and Amiga Paula chip emulated in Python + numpy"
 
     @property
     def subtitle(self) -> str:
@@ -312,7 +352,9 @@ class ModPlayer(Player):
         """(Re)start at an order position, with the speed and tempo the song
         has there."""
         self.paula.reset()
-        if position:
+        if self.is_med:
+            self.replayer = med.seek(self.tune, self.paula, position)
+        elif position:
             self.replayer = protracker.seek(self.tune, self.paula, position)
         else:
             self.replayer = protracker.ProTracker(self.tune, self.paula)
@@ -334,7 +376,8 @@ class ModPlayer(Player):
         t = pt.time
         paula.advance(t)
         pt.tick()
-        voices = tuple((hw.per, hw.vol if hw.dma else 0, v.sample, v.cmd & 0xFFF)
+        mask = 0xFFFF if self.is_med else 0xFFF       # PT keeps the instrument above the effect
+        voices = tuple((hw.per, hw.vol if hw.dma else 0, v.sample, v.cmd & mask)
                        for hw, v in zip(paula.voices, pt.voices))
         self.frames.append((t, (pt.now, pt.speed, pt.bpm, pt.led, pt.playing, voices)))
 
@@ -357,7 +400,8 @@ class ModPlayer(Player):
                           f"{sample:02d} {s.name if s else '':.22}" if sample else "--",
                           f"vol {volume:2d}    fx {f'{cmd:03X}' if cmd else '---'}"])
             levels.append(volume / 64)
-        chip = [f"POS {pos:02d}/{len(orders):02d}  PATTERN {orders[pos]:02d}  ROW {row:02d}",
+        block = "BLOCK" if self.is_med else "PATTERN"
+        chip = [f"POS {pos:02d}/{len(orders):02d}  {block} {orders[pos]:02d}  ROW {row:02d}",
                 f"SPEED {speed}  BPM {bpm}  LED {'on' if led else 'off'}"
                 + ("" if playing else "  STOPPED")]
         return Readout(f"pos {pos:02d}/{len(orders):02d}  row {row:02d}", lines, levels, chip)
@@ -379,6 +423,8 @@ def song_length(tune, song: int | None = None, max_seconds: float = 600.0, **kwa
     its loop, or (seconds, "end") for one that stops.  None if neither is
     found within `max_seconds`.  For a MOD, `song` is the starting order
     position, and the replayer's own bookkeeping gives an exact answer."""
+    if isinstance(tune, medfile.MedFile):
+        return med.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     if isinstance(tune, modfile.ModFile):
         return protracker.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     return sid_song_length(tune, song or tune.start_song, max_seconds, **kwargs)

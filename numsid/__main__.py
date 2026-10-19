@@ -1,7 +1,7 @@
 """numsid command line.
 
     python -m numsid TUNE.sid                 window with scopes + live audio
-    python -m numsid TUNE.mod                 the same for an Amiga MOD
+    python -m numsid TUNE.mod                 the same for an Amiga MOD or MED song
     python -m numsid TUNE.sid --headless      live audio only
     python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
 """
@@ -21,10 +21,11 @@ MODELS = ("6581", "8580", "A500", "A1200")
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="numsid", description="Play C64 SID tunes and Amiga MODs, emulated in Python.")
-    ap.add_argument("tune", help="PSID/RSID file, or a ProTracker/SoundTracker MOD")
+    ap.add_argument("tune", help="PSID/RSID file, or an Amiga module: ProTracker/SoundTracker "
+                                 "MOD or MED/OctaMED song, PowerPacked or not")
     ap.add_argument("-s", "--song", type=int, help="SID subtune (default: the file's start song)")
     ap.add_argument("-p", "--pos", type=int, default=0,
-                    help="MOD order position to start at (default 0)")
+                    help="MOD/MED order position to start at (default 0)")
     ap.add_argument("-m", "--model", type=str.upper, choices=MODELS,
                     help="SID chip (default: as the file recommends, else 6581) or "
                          "Amiga (default A500)")
@@ -68,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     is_mod = isinstance(tune, modfile.ModFile)
     if is_mod:
         if args.song:
-            print("numsid: a MOD has one song; use --pos to start at an order position",
+            print("numsid: a module has one song; use --pos to start at an order position",
                   file=sys.stderr)
             return 1
         if not 0 <= args.pos < len(tune.orders):

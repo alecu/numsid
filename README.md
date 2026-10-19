@@ -3,10 +3,10 @@
 A Commodore 64 SID and Amiga MOD music player written in Python. For SID
 tunes the MOS 6502 CPU runs the tune's own player code, and the MOS 6581/8580
 SID chip is synthesised cycle by cycle with numpy. For Amiga tracker modules
-a ProTracker 2.3D replay routine drives Paula, the Amiga's sound chip, which
-is emulated with exact sample timing and the A500/A1200 output filters. No
-emulation or tracker libraries are used, only `numpy` for the maths and
-`pyglet` for audio output and the window.
+a ProTracker 2.3D replay routine, or a MED/OctaMED one, drives Paula, the
+Amiga's sound chip, which is emulated with exact sample timing and the
+A500/A1200 output filters. No emulation or tracker libraries are used, only
+`numpy` for the maths and `pyglet` for audio output and the window.
 
 [![Video: numsid playing Commando by Rob Hubbard](https://img.youtube.com/vi/QAMZvv-m03c/maxresdefault.jpg)](https://www.youtube.com/watch?v=QAMZvv-m03c)
 
@@ -76,8 +76,10 @@ muted](docs/screenshot-song2.png)
 The file type is detected from the contents. ProTracker, NoiseTracker and
 StarTrekker modules (`M.K.`, `FLT4` and the like) play, as do the original
 15-sample SoundTracker ones and PC-era multichannel MODs (`6CHN`, `8CHN`,
-`xxCH`). Output is stereo with the Amiga's hard left/right panning: channels
-1 and 4 left, 2 and 3 right. In the window `←/→` step through the order list,
+`xxCH`). So do MED and OctaMED songs (`MMD0` to `MMD3`, 4 to 8 tracks or
+more), synthetic and hybrid instruments included, and files crunched with
+PowerPacker (`PP20`), which are unpacked first. Output is stereo with the
+Amiga's hard left/right panning: channels 1 and 4 left, 2 and 3 right. In the window `←/→` step through the order list,
 `1`-`4` mute channels, `F` makes the LED filter ignore the song's `E0x`
 commands, and `M` switches between the A500 and A1200 output stages. The
 readouts show each channel's note, period and sample rate, sample, volume and
@@ -86,7 +88,10 @@ effect, plus the song position, speed and BPM.
 ![numsid playing axelf.mod: four channel oscilloscopes with note, sample and
 volume readouts, and the stereo output mixed down](docs/screenshot-mod.png)
 
-Rendering costs about 0.06 s of CPU per second of audio.
+Rendering costs about 0.06 s of CPU per second of audio. Peaks that would
+go past full scale (the output high-pass can lift a loud passage there) go
+through a soft limiter instead of clipping: below 90% of full scale the
+signal is untouched.
 
 ### Videos and screenshots
 
@@ -184,18 +189,22 @@ as described in its documentation and comments. All code here is new.
 
 ```mermaid
 flowchart TD
-    file[".mod file"] --> mod["<b>modfile.py</b><br/>samples, order list, patterns<br/>sample data laid out as chip RAM"]
+    file["module file<br/>PowerPacker ones unpacked first"] --> mod["<b>modfile.py</b><br/>MOD: samples, order list, patterns<br/>sample data laid out as chip RAM"]
+    file --> medf["<b>medfile.py</b><br/>MED / OctaMED: blocks,<br/>samples and synth instruments"]
     mod --> pt["<b>protracker.py</b><br/>ProTracker 2.3D replay routine<br/>one tick per CIA timer interrupt"]
+    medf --> medr["<b>med.py</b><br/>MED replay routine<br/>runs the synth tables too"]
     pt -- "register writes:<br/>location, length, period,<br/>volume, DMA on/off, LED" --> ch
+    medr -- "the same register writes" --> ch
 
-    subgraph paula ["paula.py · exact to the colour clock"]
-        ch["4 DMA channels<br/>byte held for period colour clocks,<br/>block reload from the latches"] --> pan["panning<br/>1 + 4 left, 2 + 3 right"]
+    subgraph paula ["paula.py"]
+        ch["4 DMA channels, exact to the colour clock<br/>byte held for period colour clocks,<br/>block reload from the latches"] --> pan["panning<br/>1 + 4 left, 2 + 3 right"]
     end
 
     pan --> res["<b>resample.py</b><br/>709 kHz → 44.1 kHz<br/>with the A500's 4.4 kHz RC low-pass"]
-    res --> led["LED filter<br/>2-pole 3.1 kHz, switched by E0x"]
+    res --> led["LED filter<br/>2-pole 3.1 kHz, switched by the song"]
     led --> hp["5 Hz output high-pass"]
-    hp --> out["live playback, WAV, video"]
+    hp --> lim["soft limiter above 90%"]
+    lim --> out["live playback, WAV, video"]
 ```
 
 * **Replayer (`protracker.py`)**: ProTracker 2.3D's routine, which most MODs
@@ -214,6 +223,23 @@ flowchart TD
   The behaviour follows 8bitbubsy's [pt2-clone](https://github.com/8bitbubsy/pt2-clone),
   a faithful port of the original code. The period, vibrato and funk tables
   come from it too.
+* **MED replayer (`med.py`)**: MED and OctaMED songs are made of blocks of
+  any length, and their tempo is in MED's own units, which `med_bpm`
+  converts. Notes are numbered from C-1. On 4-channel songs the ones above
+  the third octave wrap down into it. Track and master volumes scale every
+  note, instruments can have a hold/decay envelope, and slides also run on a
+  line's first tick unless the song asks for SoundTracker-style ones.
+  Synthetic instruments are short looped waveforms driven by two small
+  programs, a volume table and a waveform table. The replayer steps through
+  both: set or ramp the volume, follow an envelope, pick a waveform, ramp
+  the pitch, arpeggio, vibrato, wait and jump. A new waveform goes to
+  Paula's latches, so it takes over when the current one ends. The
+  semantics follow libopenmpt's MED loader and synth code, read as
+  documentation; the code is new.
+* **PowerPacker (`powerpacker.py`)**: many Amiga modules were crunched with
+  PowerPacker. Its bit stream is read backwards, and the output is rebuilt
+  from its last byte to its first, out of literal runs and copies of bytes
+  already written. numsid unpacks `PP20` files before loading them.
 * **Paula (`paula.py`)**: each channel plays its block from chip RAM, a byte
   per `period` colour clocks (3,546,895 Hz, PAL), and reloads the location
   and length latches when the block ends. That is how loops work, and how a
@@ -251,13 +277,30 @@ at a time, word fetches and length counter included. The renderer must match
 it exactly on random register sequences. The replayer tests trace periods,
 volumes and triggers tick by tick for each effect and quirk, and the flow
 commands row by row. Other tests cover the file formats, pitch, panning, the
-output filters and song length.
+output filters and song length. `tests/test_med.py` builds small MMD0 and
+MMD1 files and traces the MED replayer tick by tick: tempo units, note
+numbering and octave wrap, track and master volumes, first-tick slides,
+vibrato depth, flow commands, hold/decay and hold symbols, and each synth
+table command. PowerPacker decrunching is checked by round trips through
+a small encoder written for the test, and the soft limiter by its shape.
 
-Checked against libopenmpt (through ffmpeg), the first 60 s of `axelf.mod`
-have the same timing: the loudness envelopes of both sides correlate at 0.95
-with zero lag. With `--model A1200` the spectrum matches within 0.7 dB up to
-8 kHz. Above that, OpenMPT's interpolation smooths away the sample steps that
-numsid keeps.
+Real modules were checked against libopenmpt 0.8.9 (`openmpt123` with its
+Amiga resampler emulation, the A500 filter and hard panning), comparing
+loudness envelopes in 25 ms frames and the level in five frequency bands
+([ISSUES.md](ISSUES.md), M1, has the details and a table):
+
+* **ProTracker:** 27 of the 28 famous demo and game modules in the list
+  play (Turrican II is TFMX). Over the first minute of each, the 25
+  ProTracker ones keep the same timing as libopenmpt, with no drift, and
+  their envelopes correlate at 0.91 to 1.00 (median 0.997). Every band
+  matches within 0.7 dB, except in Agony, which switches on the LED filter.
+* **MED:** all 198 MED and OctaMED songs that load from the collection
+  play. 155 correlate at 0.90 or better as they are. With libopenmpt's own
+  rounding of MED tick lengths emulated, 189 do (median 0.998), and none
+  drifts.
+* **`axelf.mod`:** with `--model A1200`, the spectrum matches within 0.7 dB
+  up to 8 kHz. Above that, OpenMPT's interpolation smooths away the sample
+  steps that numsid keeps.
 
 ## Limitations
 
@@ -275,5 +318,11 @@ included.
 * The noise LFSR "write-back" when noise is combined with other waveforms is
   not modelled; that combination produces an AND, near silence.
 * MODs: PAL timing only, and every module plays with ProTracker 2.3D
-  semantics, including multichannel ones written in PC trackers. Only one
-  real module has been checked end to end so far (see ISSUES.md, M1).
+  semantics, including multichannel ones written in PC trackers.
+* MED songs: MIDI instruments and packed samples stay silent, and the
+  play-sequence commands of MMD2/MMD3 are ignored. Each track gets a Paula
+  channel of its own, where OctaMED's 5-8 channel mode mixes two tracks per
+  channel in software.
+* Other Amiga music formats (TFMX, Future Composer, Oktalyzer, the old
+  `MED` format, XPK-packed files and the many DeliTracker players) are not
+  supported.
