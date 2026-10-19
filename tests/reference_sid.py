@@ -2,11 +2,11 @@
 
 It follows the clocking order and state machines described by reSID 0.16
 literally (envelope, then oscillators, then sync, once per cycle) with no
-vectorisation or event skipping, so the optimised engine in numsid.sid can be
+vectorisation or event skipping, so the optimised engine in numsid.c64.sid can be
 checked against it sample for sample.  Slow: only for short test runs.
 """
 
-from numsid.sid import RATE_PERIOD, SUSTAIN_LEVEL, ATTACK, DECAY_SUSTAIN, RELEASE
+from numsid.c64.sid import RATE_PERIOD, SUSTAIN_LEVEL, ATTACK, DECAY_SUSTAIN, RELEASE
 
 MASK24 = 0xFFFFFF
 

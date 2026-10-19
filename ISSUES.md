@@ -79,7 +79,7 @@ How the fixes were verified:
     routine stops the timer on entry (`$DC0E=$00`) and restarts it on
     exit (`$81`). Each period therefore stretches by the play routine's
     run time (about 20% on average), which numsid doesn't model.
-* **Fix:** a model of the 6526 timers (`numsid/cia.py`) now schedules
+* **Fix:** a model of the 6526 timers (`numsid/c64/cia.py`) now schedules
   CIA-timed play calls from timer A's actual next underflow. Writes made by
   play behave as on the chip:
   * a new latch takes effect at the next reload,
@@ -331,7 +331,7 @@ How the fixes were verified:
 
 * **Affects:** 27 files in the collection, among them Shadow of
   the Beast. 14 are ProTracker modules and 13 (3 of them in the old MED 2/3 format, which isn't supported) are MED songs.
-* **Fix:** `numsid/powerpacker.py` unpacks `PP20` files before the format
+* **Fix:** `numsid/amiga/powerpacker.py` unpacks `PP20` files before the format
   is detected. The bit stream is read backwards, and the output is rebuilt
   from its last byte to its first, out of literal runs and copies of bytes
   already written. All 27 unpack, in under 0.2 s each; the 14
@@ -345,8 +345,8 @@ How the fixes were verified:
 
 * **Affects:** 199 songs in the collection (139 MMD1, 48 MMD0, 6 MMD2, 5 MMD3), among
   them Cannon Fodder and Xenon 2's Megablast. 162 have 4 tracks, 31 have 8 and 5 have 7, 9 or 10.
-* **Fix:** a loader for MMD0 to MMD3 (`numsid/medfile.py`) and a MED
-  replay routine (`numsid/med.py`) that drives Paula like the ProTracker
+* **Fix:** a loader for MMD0 to MMD3 (`numsid/amiga/medfile.py`) and a MED
+  replay routine (`numsid/amiga/med.py`) that drives Paula like the ProTracker
   one. It covers:
   * MED's tempo units (`SPD`, SoundTracker-compatible, BPM mode and the
     8-channel tempos),

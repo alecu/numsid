@@ -33,8 +33,8 @@ from collections import deque
 
 import numpy as np
 
-from .resample import Resampler
-from .sid import SCOPE_SIZE
+from ..player import SCOPE_SIZE
+from ..resample import Resampler
 
 PAL_COLOR_CLOCK = 3546895
 NTSC_COLOR_CLOCK = 3579545

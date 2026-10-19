@@ -11,10 +11,14 @@ test = ["pytest"]
 
 [project.scripts]
 numsid = "numsid.__main__:main"
+numc64 = "numsid.c64.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["numsid"]
+packages = ["numsid", "numsid.c64", "numsid.amiga", "numsid.midi", "numsid.mt32"]
+
+[tool.setuptools.package-data]
+"numsid.c64" = ["shaders/*.vert", "shaders/*.frag"]

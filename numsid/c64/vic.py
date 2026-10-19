@@ -84,11 +84,25 @@ class VIC:
             return self.flags | 0x70 | (0x80 if self.irq else 0)
         if reg == 0x1A:
             return self.enable | 0xF0
+        if reg in (0x1E, 0x1F):
+            value = self.regs[reg]
+            self.regs[reg] = 0
+            return value
+        if reg == 0x16:
+            return self.regs[reg] | 0xC0
+        if reg == 0x18:
+            return self.regs[reg] | 1
+        if 0x20 <= reg <= 0x2E:
+            return self.regs[reg] | 0xF0
+        if reg >= 0x2F:
+            return 0xFF
         return self.regs[reg]
 
     def write(self, reg: int, value: int, now: int) -> None:
         reg &= 0x3F
         self.sync(now)
+        if reg in (0x1E, 0x1F) or reg >= 0x2F:
+            return
         self.regs[reg] = value
         if reg == 0x11:
             self.compare = (self.compare & 0xFF) | ((value & 0x80) << 1)

@@ -2,6 +2,7 @@
 
     python -m numsid TUNE.sid                 window with scopes + live audio
     python -m numsid TUNE.mod                 the same for an Amiga MOD or MED song
+    python -m numsid TUNE.mid                 a MIDI file on an emulated MT-32
     python -m numsid TUNE.sid --headless      live audio only
     python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
 """
@@ -12,23 +13,29 @@ import argparse
 import sys
 import time
 
-from . import modfile
-from .player import load_tune, open_player, write_wav
+from .amiga import modfile
+from .midi import smf
+from .player import write_wav
+from .tunes import load_tune, open_player
 
-MODELS = ("6581", "8580", "A500", "A1200")
+MODELS = ("6581", "8580", "A500", "A1200", "MT-32", "CM-32L")
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "c64":
+        from .c64.__main__ import main as c64_main
+        return c64_main(argv[1:])
     ap = argparse.ArgumentParser(
         prog="numsid", description="Play C64 SID tunes and Amiga MODs, emulated in Python.")
-    ap.add_argument("tune", help="PSID/RSID file, or an Amiga module: ProTracker/SoundTracker "
-                                 "MOD or MED/OctaMED song, PowerPacked or not")
+    ap.add_argument("tune", help="PSID/RSID file, an Amiga module (ProTracker/SoundTracker MOD "
+                                 "or MED/OctaMED song, PowerPacked or not), or a MIDI file")
     ap.add_argument("-s", "--song", type=int, help="SID subtune (default: the file's start song)")
     ap.add_argument("-p", "--pos", type=int, default=0,
-                    help="MOD/MED order position to start at (default 0)")
+                    help="MOD/MED order position, or MIDI start time in seconds (default 0)")
     ap.add_argument("-m", "--model", type=str.upper, choices=MODELS,
-                    help="SID chip (default: as the file recommends, else 6581) or "
-                         "Amiga (default A500)")
+                    help="SID chip (default: as the file recommends, else 6581), "
+                         "Amiga (default A500) or MIDI synth (default MT-32)")
     ap.add_argument("-r", "--rate", type=int, default=44100, help="sample rate (default 44100)")
     ap.add_argument("-g", "--gain", type=float, default=1.0, help="output gain (default 1.0)")
     ap.add_argument("--no-filter", action="store_true",
@@ -67,7 +74,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     is_mod = isinstance(tune, modfile.ModFile)
-    if is_mod:
+    is_midi = isinstance(tune, smf.MidiFile)
+    if is_midi:
+        if args.song:
+            print("numsid: a MIDI file has one song", file=sys.stderr)
+            return 1
+        start = args.pos
+        models = ("MT-32", "CM-32L")
+    elif is_mod:
         if args.song:
             print("numsid: a module has one song; use --pos to start at an order position",
                   file=sys.stderr)
@@ -88,11 +102,15 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     visual = args.video or args.screenshot or not (args.wav or args.headless)
-    player = open_player(tune, start, sample_rate=args.rate, model=args.model,
-                         filter_enabled=not args.no_filter, gain=args.gain,
-                         scope_rate=44100 if visual else 0,
-                         separation=args.separation / 100 if is_mod else None,
-                         digi_boost=None if is_mod else not args.no_digiboost)
+    try:
+        player = open_player(tune, start, sample_rate=args.rate, model=args.model,
+                             filter_enabled=not args.no_filter, gain=args.gain,
+                             scope_rate=44100 if visual else 0,
+                             separation=args.separation / 100 if is_mod else None,
+                             digi_boost=None if is_mod or is_midi else not args.no_digiboost)
+    except ValueError as exc:
+        print(f"numsid: {exc}", file=sys.stderr)
+        return 1
     for v in filter(None, args.mute.split(",")):
         if not 1 <= int(v) <= player.voices:
             print(f"numsid: --mute takes voices 1..{player.voices}", file=sys.stderr)
@@ -106,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         screenshot(player, args.screenshot, args.at)
         print(f"wrote {args.screenshot}")
     elif args.video:
-        from .player import song_length
+        from .tunes import song_length
         from .record import record_video
         seconds = args.seconds
         if not seconds:

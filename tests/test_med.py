@@ -5,10 +5,12 @@ import struct
 import numpy as np
 import pytest
 
-from numsid import med, medfile, powerpacker
-from numsid.modfile import BLANK, ModFile
-from numsid.player import KNEE, ModPlayer, TuneError, load_tune, open_player, soft_limit, song_length
-from numsid.protracker import PAL_CIA_CLOCK, PERIODS, VIBRATO, NullPaula
+from numsid.amiga import med, medfile, powerpacker
+from numsid.amiga.modfile import BLANK, ModFile
+from numsid.amiga.player import ModPlayer
+from numsid.amiga.protracker import PAL_CIA_CLOCK, PERIODS, VIBRATO, NullPaula
+from numsid.player import KNEE, soft_limit
+from numsid.tunes import TuneError, load_tune, open_player, song_length
 
 from test_mod import SQUARE, make_mod
 

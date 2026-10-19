@@ -1,12 +1,13 @@
 # numsid
 
-A Commodore 64 SID and Amiga MOD music player written in Python. For SID
+A Commodore 64 SID, Amiga MOD and MIDI (on a Roland MT-32) music player written in Python. For SID
 tunes the MOS 6502 CPU runs the tune's own player code, and the MOS 6581/8580
 SID chip is synthesised cycle by cycle with numpy. For Amiga tracker modules
 a ProTracker 2.3D replay routine, or a MED/OctaMED one, drives Paula, the
 Amiga's sound chip, which is emulated with exact sample timing and the
-A500/A1200 output filters. No emulation or tracker libraries are used, only
-`numpy` for the maths and `pyglet` for audio output and the window.
+A500/A1200 output filters. No
+emulation or tracker libraries are used, only `numpy` for the maths and
+`pyglet` for audio output and the window.
 
 [![Video: numsid playing Commando by Rob Hubbard](https://img.youtube.com/vi/QAMZvv-m03c/maxresdefault.jpg)](https://www.youtube.com/watch?v=QAMZvv-m03c)
 
@@ -20,9 +21,12 @@ python -m numsid sids/Commando.sid
 ![numsid playing Rob Hubbard's Commando: three voice oscilloscopes with
 note, waveform and ADSR readouts, and the mixed output](docs/screenshot.png)
 
-Playback is real time. Rendering Commando costs about 0.13 s of CPU per second
-of audio offline, and about 25–40% of one core during live playback with the
-visualiser open.
+Playback is real time.
+
+The project also includes a ROM-booted PAL C64 for games and BASIC, with
+video decoded directly from memory by an OpenGL shader. See
+[the emulator guide](docs/emulator.md) for its architecture and current
+compatibility limits.
 
 ## Setup
 
@@ -44,6 +48,37 @@ there.
 
 ## Usage
 
+### C64 games and BASIC
+
+```bash
+# Uses the C64 ROMs inside the VICE tarball in Downloads, without extracting it.
+.venv/bin/python -m numsid c64 ~/Downloads/Commando*.zip
+
+# Boot to BASIC, or specify a ROM source explicitly.
+.venv/bin/python -m numsid c64
+.venv/bin/python -m numsid.c64 game.prg --roms ~/Downloads/vice-3.10.tar.gz
+```
+
+The ROM source may also be a directory containing `basic`, `kernal` and
+`chargen` (or VICE's corresponding `.bin` filenames). PRGs and ZIPs containing
+one PRG load directly; no disk drive is needed. ROMs and games are not included.
+
+For the downloaded **Hokuto Force +7** Commando release: wait through the
+decompression, press **Space** at the crack intro, **Esc** to skip the info
+linker, answer the trainer's **Y/N** prompts, then press **1** for Commando.
+At the game title, **Right Ctrl** starts the game and fires; **arrows** move
+and **Space** throws a grenade. **F10** switches joystick ports (default 2),
+**F9** pauses, **F11** toggles fullscreen, and **F12** is RESTORE. Close the
+window to quit; Esc is the C64's RUN/STOP key.
+
+CRT scanlines, a subtle phosphor grille and glow are enabled by default.
+**Ctrl+F11** toggles the effect, or start with `--no-crt` for sharp pixels.
+The display expands to the window while preserving its aspect ratio.
+
+![Commando running on the Python C64, decoded from RAM by the VIC-II shader](docs/commando-game.png)
+
+### SID tunes
+
 ```bash
 .venv/bin/python -m numsid sids/Commando.sid                 # window + live audio
 .venv/bin/python -m numsid sids/Commando.sid --song 2        # pick a subtune
@@ -56,9 +91,7 @@ there.
 
 Window keys: `←/→` subtune, `1 2 3` mute a voice, `SPACE` pause, `F` filter
 on/off, `M` switch between 6581 and 8580, `ESC` quit. A muted voice keeps its
-scope, drawn in gray, and loses its envelope meter. Scopes and register
-readouts follow what you are *hearing*: the emulator runs ahead of the sound
-card, and the display looks up the state for the current playback position.
+scope, drawn in gray, and loses its envelope meter.
 
 ![Subtune 2: sawtooth lead on voice 2, detuned pulse on voice 1, voice 3
 muted](docs/screenshot-song2.png)
@@ -88,10 +121,29 @@ effect, plus the song position, speed and BPM.
 ![numsid playing axelf.mod: four channel oscilloscopes with note, sample and
 volume readouts, and the stereo output mixed down](docs/screenshot-mod.png)
 
-Rendering costs about 0.06 s of CPU per second of audio. Peaks that would
-go past full scale (the output high-pass can lift a loud passage there) go
-through a soft limiter instead of clipping: below 90% of full scale the
-signal is untouched.
+### MIDI files on a Roland MT-32
+
+```bash
+.venv/bin/python -m numsid midi/theme.mid                    # window + live audio, stereo
+.venv/bin/python -m numsid midi/theme.mid --pos 30           # start 30 s in
+.venv/bin/python -m numsid midi/theme.mid --model CM-32L     # the CM-32L's ROMs instead
+.venv/bin/python -m numsid midi/theme.mid --info             # tracks, channels, instruments
+```
+
+Standard MIDI Files play on an emulated MT-32. It needs the MT-32's ROMs,
+which are not included: put a control ROM and a PCM ROM (for example
+`mt32_ctrl_1_07.rom` and `mt32_pcm.rom`, or MAME's split halves) in `roms/`,
+or point `$NUMSID_ROMS` at them. Files are recognised by content, so the
+names don't matter. A General MIDI file is played through a map from GM
+instruments and drums to the closest MT-32 sounds; `--info` shows what each
+instrument becomes. In the window `←/→` skip 10 s and `1`-`9` mute the eight
+parts and the rhythm part.
+
+The sounds come from the real ROM data, shaped the way the MT-32's LA32
+chip was measured to shape them; MT-32 SysEx (custom timbres, patches,
+rhythm setup, reverb) is understood, and the reverb's four modes were
+measured too (`F` or `--no-filter` turns it off). See
+[MIDI on the MT-32](docs/mt32.md) and the [plan](docs/midi-plan.md).
 
 ### Videos and screenshots
 
@@ -100,163 +152,12 @@ signal is untouched.
 .venv/bin/python -m numsid sids/Commando.sid --screenshot shot.png --at 52
 ```
 
-`--video` renders the visualiser offline on a fixed 60 fps timeline into an
-offscreen 4× multisampled framebuffer. The emulator's own audio for that
-timeline is encoded with it, so sync is exact and no frames drop. By default
-it detects where the song's notes start repeating, records one full loop, and
-fades out over the restart (Commando's main theme loops after 3:55.6). A
-jingle that simply stops is recorded until its last note has died away. Use
+`--video` renders offline, so sync is exact and no frames drop. By default it
+records one full loop of the song and fades out over the restart; a jingle
+that simply stops is recorded until its last note has died away. Use
 `--seconds`, `--fps`, `--size 2560x1440` and `--fade` to override, and
 `--mute 1,3` to silence voices. It needs `ffmpeg` on the PATH and encodes
-H.264 + AAC (BT.709), ready for YouTube. For a MOD the replayer itself works
-out the length: the song is over when it returns to a row it has already
-played (pattern loops aside), or when it hits `F00`.
-
-## How it works
-
-```mermaid
-flowchart TD
-    file[".sid file"] --> psid["<b>psid.py</b><br/>parse the PSID header and data"]
-    psid --> c64["<b>c64.py</b><br/>RAM, ROM banking, KERNAL stand-in<br/>PSID: init, then play calls<br/>RSID: a free-running machine"]
-    c64 <--> cpu["<b>cpu6502.py</b><br/>runs the tune's own 6502 code"]
-    c64 <--> chips["<b>cia.py</b>, <b>vic.py</b><br/>timers, raster counter<br/>IRQ and NMI sources"]
-    cpu -- "writes to $D400-$D7FF,<br/>tagged with their CPU cycle" --> voices
-
-    subgraph sid ["sid.py · cycle by cycle"]
-        voices["3 voices<br/>accumulator → waveform × envelope"] --> mixer["mixer<br/>routing, volume, DC offsets"]
-    end
-
-    mixer -- "direct path" --> res["<b>resample.py</b><br/>985 kHz → 123 kHz → 44.1 kHz<br/>band-limited, with the C64's 16 kHz RC low-pass"]
-    mixer -- "filter input" --> res
-    res -- "filter input" --> svf["SID filter<br/>state-variable, 12 dB/oct, × volume"]
-    res -- "direct path" --> sum(("mix"))
-    svf --> sum
-    sum --> hp["16 Hz output high-pass"]
-    hp --> live["<b>audio.py</b><br/>live playback through pyglet"]
-    hp --> wav["<b>player.py</b><br/>WAV export"]
-    hp --> rec["<b>record.py</b><br/>MP4 video, PNG screenshots"]
-    sid -. "scope taps" .-> gui["<b>gui.py</b><br/>oscilloscopes and registers"]
-    gui --> rec
-```
-
-* **CPU (`cpu6502.py`)**: every documented 6502 opcode plus the common
-  "illegal" ones, NMOS decimal mode, cycle counts including page-crossing and
-  branch penalties. Each opcode is a generated Python closure with its
-  addressing mode inlined. Commando's player costs under 10 ms of Python per
-  second of music.
-* **Machine (`c64.py`, `cia.py`, `vic.py`, `kernal.py`)**:
-  * **PSID tunes:** init is called once and play every frame, or on every
-    CIA 1 timer A underflow for CIA-timed songs. The timer model follows the
-    latch, force-load and stop/start writes a play routine makes.
-  * **RSID tunes:** the CPU runs continuously, and the tune's own interrupts
-    drive it: CIA timer IRQs, CIA 2 NMIs (sampled drums) and VIC
-    raster-compare IRQs. Each is entered through the real vectors at the
-    cycle it fires. Idle loops like `JMP *` are skipped.
-  * **KERNAL:** a small replacement for the KERNAL ROM (the Commodore ROMs
-    can't be shipped) provides the interrupt entry points and handlers, the
-    jiffy clock, and harmless stand-ins for everything else.
-  * **Banking:** the KERNAL and I/O are banked through `$01` like the real
-    PLA, and writes reach the RAM underneath.
-* **Timing**: register writes carry their cycle timestamp, and the SID splits
-  each voice's timeline exactly there. Gate toggles within a frame, the ADSR
-  delay bug, and sync and ring-mod phase relationships therefore come out as
-  on hardware.
-* **Oscillators**: 24-bit phase accumulators computed for every cycle with
-  numpy, with hard sync (including the "source synced on the same cycle"
-  rule), ring modulation and the test bit. Noise is the real 23-bit LFSR,
-  clocked by accumulator bit 19. Its whole 8,388,607-step period is
-  precomputed in ~0.1 s using the identity b[n] = b[n−23·2ᵏ] ⊕ b[n−18·2ᵏ].
-* **Envelope**: the full reSID-style state machine: 15-bit rate counter with
-  wrap-around, exponential decay divider with its thresholds, sustain
-  equality comparator, freeze at zero, and the 0xFF→0x00 flip. Instead of
-  ticking every cycle, it jumps from one counter step to the next and
-  expands the steps to per-cycle values.
-* **Combined waveforms**: a pull-down model (wired-AND plus neighbour-bit
-  leakage) with the parameters fitted by the libsidplayfp project.
-* **Mixer and filter**: per-voice routing, voice-3-off, and volume applied per
-  cycle, so `$D418` sample playback works. The 6581 DC offsets are modelled.
-  On the 8580, which has almost no offset (such samples are nearly silent on
-  a real C64C), a sidplayfp-style "digi boost" is on by default.
-  Cutoff curves come from measurements of real 6581 and 8580 chips.
-* **Output**: a two-stage polyphase resampler (Kaiser windowed sinc,
-  ≥80 dB alias rejection, flat to 19 kHz) with the C64's ~16 kHz RC low-pass
-  folded into its kernel, then the 16 Hz coupling high-pass.
-
-Chip behaviour follows reSID 0.16 (Dag Lem), the reference for SID emulation,
-as described in its documentation and comments. All code here is new.
-
-### Amiga MODs
-
-```mermaid
-flowchart TD
-    file["module file<br/>PowerPacker ones unpacked first"] --> mod["<b>modfile.py</b><br/>MOD: samples, order list, patterns<br/>sample data laid out as chip RAM"]
-    file --> medf["<b>medfile.py</b><br/>MED / OctaMED: blocks,<br/>samples and synth instruments"]
-    mod --> pt["<b>protracker.py</b><br/>ProTracker 2.3D replay routine<br/>one tick per CIA timer interrupt"]
-    medf --> medr["<b>med.py</b><br/>MED replay routine<br/>runs the synth tables too"]
-    pt -- "register writes:<br/>location, length, period,<br/>volume, DMA on/off, LED" --> ch
-    medr -- "the same register writes" --> ch
-
-    subgraph paula ["paula.py"]
-        ch["4 DMA channels, exact to the colour clock<br/>byte held for period colour clocks,<br/>block reload from the latches"] --> pan["panning<br/>1 + 4 left, 2 + 3 right"]
-    end
-
-    pan --> res["<b>resample.py</b><br/>709 kHz → 44.1 kHz<br/>with the A500's 4.4 kHz RC low-pass"]
-    res --> led["LED filter<br/>2-pole 3.1 kHz, switched by the song"]
-    led --> hp["5 Hz output high-pass"]
-    hp --> lim["soft limiter above 90%"]
-    lim --> out["live playback, WAV, video"]
-```
-
-* **Replayer (`protracker.py`)**: ProTracker 2.3D's routine, which most MODs
-  were written for. It runs as a CIA interrupt (`1773447 / BPM` timer
-  cycles, 50 Hz at 125 BPM), reads a row every `speed` ticks, and runs the
-  effects in between. It writes Paula's registers the way the 68000 code
-  does, and keeps its quirks:
-  * sample offset (`9xx`) is applied twice, so retriggers start further in,
-  * arpeggio on a finetune −1 sample reads past the period table,
-  * the tremolo's ramp waveform looks at the vibrato position,
-  * a BPM change takes effect one tick late, when the CIA timer reloads,
-  * an instrument without a note swaps the sample in when the playing one
-    ends,
-  * `EFx` inverts sample bytes in memory as they play.
-
-  The behaviour follows 8bitbubsy's [pt2-clone](https://github.com/8bitbubsy/pt2-clone),
-  a faithful port of the original code. The period, vibrato and funk tables
-  come from it too.
-* **MED replayer (`med.py`)**: MED and OctaMED songs are made of blocks of
-  any length, and their tempo is in MED's own units, which `med_bpm`
-  converts. Notes are numbered from C-1. On 4-channel songs the ones above
-  the third octave wrap down into it. Track and master volumes scale every
-  note, instruments can have a hold/decay envelope, and slides also run on a
-  line's first tick unless the song asks for SoundTracker-style ones.
-  Synthetic instruments are short looped waveforms driven by two small
-  programs, a volume table and a waveform table. The replayer steps through
-  both: set or ramp the volume, follow an envelope, pick a waveform, ramp
-  the pitch, arpeggio, vibrato, wait and jump. A new waveform goes to
-  Paula's latches, so it takes over when the current one ends. The
-  semantics follow libopenmpt's MED loader and synth code, read as
-  documentation; the code is new.
-* **PowerPacker (`powerpacker.py`)**: many Amiga modules were crunched with
-  PowerPacker. Its bit stream is read backwards, and the output is rebuilt
-  from its last byte to its first, out of literal runs and copies of bytes
-  already written. numsid unpacks `PP20` files before loading them.
-* **Paula (`paula.py`)**: each channel plays its block from chip RAM, a byte
-  per `period` colour clocks (3,546,895 Hz, PAL), and reloads the location
-  and length latches when the block ends. That is how loops work, and how a
-  sample swap happens. Period and volume take effect from the next byte.
-  The output is rendered at the E clock (colour clock / 5), and every value
-  is the exact average of the staircase over its five colour clocks,
-  computed in integers. A naive colour-clock-stepped model checks it. The
-  steps are kept as Paula makes them, so the images they produce around
-  multiples of each sample's playback rate (the Amiga's crispness) are
-  damped only by the analogue filters.
-* **Output stage**: the A500's 360 Ω / 0.1 µF low-pass (4.4 kHz), or the
-  A1200's 34 kHz one, is folded into the resampler's kernel, as the C64's RC
-  filter is for the SID. The LED filter (Sallen-Key, 3.09 kHz, Q 0.66) runs
-  at the output rate as a block-wise state-space IIR, so numpy does the
-  work. It runs all the time, and `E0x` only switches its output in, so
-  toggling it doesn't click. Component values are from the A500 and A1200
-  schematics, as collected by pt2-clone.
+H.264 + AAC (BT.709), ready for YouTube.
 
 ## Tests
 
@@ -264,65 +165,28 @@ flowchart TD
 .venv/bin/python -m pytest -q
 ```
 
-`tests/reference_sid.py` is a deliberately naive cycle-by-cycle model of the
-oscillators, sync, ring modulation and envelopes. The vectorised engine is
-checked against it cycle for cycle on random register sequences, and must
-match exactly. Other tests cover the CPU (arithmetic, decimal mode, flags,
-page-wrap bug, illegal opcodes, cycle counts), pitch accuracy, LFSR output,
-filter modes, determinism, chunk-size independence, and all 19 Commando
-subtunes.
-
-For MODs, `tests/reference_paula.py` steps a Paula channel one colour clock
-at a time, word fetches and length counter included. The renderer must match
-it exactly on random register sequences. The replayer tests trace periods,
-volumes and triggers tick by tick for each effect and quirk, and the flow
-commands row by row. Other tests cover the file formats, pitch, panning, the
-output filters and song length. `tests/test_med.py` builds small MMD0 and
-MMD1 files and traces the MED replayer tick by tick: tempo units, note
-numbering and octave wrap, track and master volumes, first-tick slides,
-vibrato depth, flow commands, hold/decay and hold symbols, and each synth
-table command. PowerPacker decrunching is checked by round trips through
-a small encoder written for the test, and the soft limiter by its shape.
-
-Real modules were checked against libopenmpt 0.8.9 (`openmpt123` with its
-Amiga resampler emulation, the A500 filter and hard panning), comparing
-loudness envelopes in 25 ms frames and the level in five frequency bands
-([ISSUES.md](ISSUES.md), M1, has the details and a table):
-
-* **ProTracker:** 27 of the 28 famous demo and game modules in the list
-  play (Turrican II is TFMX). Over the first minute of each, the 25
-  ProTracker ones keep the same timing as libopenmpt, with no drift, and
-  their envelopes correlate at 0.91 to 1.00 (median 0.997). Every band
-  matches within 0.7 dB, except in Agony, which switches on the LED filter.
-* **MED:** all 198 MED and OctaMED songs that load from the collection
-  play. 155 correlate at 0.90 or better as they are. With libopenmpt's own
-  rounding of MED tick lengths emulated, 189 do (median 0.998), and none
-  drifts.
-* **`axelf.mod`:** with `--model A1200`, the spectrum matches within 0.7 dB
-  up to 8 kHz. Above that, OpenMPT's interpolation smooths away the sample
-  steps that numsid keeps.
-
 ## Limitations
 
-[ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
-with a compatibility table for the HVSC Top 100: all 100 now play, RSID files
-included.
-
-* No sprite DMA: RSID tunes lose the bad-line cycles the VIC steals, but
-  not the few extra cycles taken while sprites are shown.
-* No BASIC or character ROM, and only a stand-in KERNAL. Tunes that call
-  real ROM routines get a harmless return.
 * One SID chip (no 2SID/3SID tunes).
-* The filter is linear: no 6581 distortion or chip-to-chip variation, and
-  reSID 0.16's mild resonance range.
-* The noise LFSR "write-back" when noise is combined with other waveforms is
-  not modelled; that combination produces an AND, near silence.
-* MODs: PAL timing only, and every module plays with ProTracker 2.3D
-  semantics, including multichannel ones written in PC trackers.
-* MED songs: MIDI instruments and packed samples stay silent, and the
-  play-sequence commands of MMD2/MMD3 are ignored. Each track gets a Paula
-  channel of its own, where OctaMED's 5-8 channel mode mixes two tracks per
-  channel in software.
-* Other Amiga music formats (TFMX, Future Composer, Oktalyzer, the old
-  `MED` format, XPK-packed files and the many DeliTracker players) are not
-  supported.
+* SID-file playback uses a stand-in KERNAL and no BASIC/character ROM.
+  The game emulator uses the user's real ROMs; its remaining hardware
+  limitations are listed in [the emulator guide](docs/emulator.md).
+* Amiga modules play with PAL timing only, and MODs with ProTracker 2.3D
+  semantics. MED songs lack MIDI instruments, packed samples and the
+  play-sequence commands of MMD2/MMD3. Other Amiga formats (TFMX and
+  friends) aren't supported.
+* MIDI files play on the MT-32 only; there is no General MIDI synth yet.
+
+[ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
+with a compatibility table for the HVSC Top 100 (all 100 now play, RSID files
+included) and one for well-known Amiga modules (27 of 28 play).
+
+## How it works
+
+* [Architecture](docs/architecture.md): how the code is laid out, video
+  recording, performance.
+* [C64 SID playback](docs/c64.md): the 6502, the machine, the SID chip.
+* [Amiga module playback](docs/amiga.md): the ProTracker and MED
+  replayers, PowerPacker, and Paula.
+* [MIDI on the MT-32](docs/mt32.md): the ROMs, and the LA32 as measured.
+* [Testing](docs/testing.md): reference models and how accuracy is checked.

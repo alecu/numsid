@@ -31,11 +31,11 @@ from collections import deque
 
 import numpy as np
 
-from .resample import Resampler
+from ..player import SCOPE_SIZE
+from ..resample import Resampler
 
 MASK24 = 0xFFFFFF
 MAX_SPAN = 30000                 # cycles per numpy batch (keeps freq * n within int32)
-SCOPE_SIZE = 1 << 16             # samples kept per display tap
 
 # Envelope rate counter periods (cycles per step) for the 16 A/D/R settings
 RATE_PERIOD = [9, 32, 63, 95, 149, 220, 267, 313, 392, 977, 1954, 3126, 3907, 11720,

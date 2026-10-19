@@ -118,6 +118,9 @@ class C64:
             else:
                 self.ram[0] = value
             return
+        if addr < 0xD000:
+            self.ram[addr] = value
+            return
         if addr >= 0xE000:
             if self.kernal_in:
                 self.under_rom[addr - 0xE000] = value
