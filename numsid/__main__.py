@@ -1,7 +1,7 @@
 """numsid command line.
 
     python -m numsid TUNE.sid                 window with scopes + live audio
-    python -m numsid TUNE.mod                 the same for an Amiga MOD
+    python -m numsid TUNE.mod                 the same for an Amiga MOD or MED song
     python -m numsid TUNE.mid                 a MIDI file on an emulated MT-32
     python -m numsid TUNE.sid --headless      live audio only
     python -m numsid TUNE.sid --wav out.wav   render to a WAV file instead
@@ -28,10 +28,11 @@ def main(argv: list[str] | None = None) -> int:
         return c64_main(argv[1:])
     ap = argparse.ArgumentParser(
         prog="numsid", description="Play C64 SID tunes and Amiga MODs, emulated in Python.")
-    ap.add_argument("tune", help="PSID/RSID file, a ProTracker/SoundTracker MOD, or a MIDI file")
+    ap.add_argument("tune", help="PSID/RSID file, an Amiga module (ProTracker/SoundTracker MOD "
+                                 "or MED/OctaMED song, PowerPacked or not), or a MIDI file")
     ap.add_argument("-s", "--song", type=int, help="SID subtune (default: the file's start song)")
     ap.add_argument("-p", "--pos", type=int, default=0,
-                    help="MOD order position, or MIDI start time in seconds (default 0)")
+                    help="MOD/MED order position, or MIDI start time in seconds (default 0)")
     ap.add_argument("-m", "--model", type=str.upper, choices=MODELS,
                     help="SID chip (default: as the file recommends, else 6581), "
                          "Amiga (default A500) or MIDI synth (default MT-32)")
@@ -82,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         models = ("MT-32", "CM-32L")
     elif is_mod:
         if args.song:
-            print("numsid: a MOD has one song; use --pos to start at an order position",
+            print("numsid: a module has one song; use --pos to start at an order position",
                   file=sys.stderr)
             return 1
         if not 0 <= args.pos < len(tune.orders):

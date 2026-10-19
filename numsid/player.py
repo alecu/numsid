@@ -2,7 +2,7 @@
 
 Two kinds of tune are played the same way.  For a SID file the emulated
 C64's 6502 runs the tune's own player code against the SID.  For an Amiga
-MOD a ProTracker replay routine drives Paula.  Either way the engine
+module a ProTracker or MED replay routine drives Paula.  Either way the engine
 writes registers at known clock cycles, the chip renders at its own clock
 and resamples to the output rate, and `Player` pulls audio out of it.  The machine-specific players live in
 `c64.player` and `amiga.player`; `tunes` opens either kind.  It
@@ -21,6 +21,22 @@ from pathlib import Path
 import numpy as np
 
 SCOPE_SIZE = 1 << 16             # samples kept per display tap
+KNEE = 0.9                       # soft limiter: identity below this, approaches 1.0 above
+
+
+def soft_limit(x: np.ndarray) -> np.ndarray:
+    """Bound x to [-1, 1] in place without hard clipping.  Below KNEE the
+    signal is untouched; above it a tanh curve, continuous in slope at the
+    knee, squeezes the rest into the last tenth of the range.  An Amiga's
+    analogue stages lift peaks past full scale whenever the output
+    high-pass shifts a loud waveform off centre, which would otherwise be
+    clipped hard."""
+    over = np.abs(x) > KNEE
+    if over.any():
+        v = x[over]
+        room = 1.0 - KNEE
+        x[over] = np.sign(v) * (KNEE + room * np.tanh((np.abs(v) - KNEE) / room))
+    return x
 
 
 @dataclass
@@ -87,7 +103,7 @@ class Player:
         out = chip.take(n)
         if self.gain != 1.0:
             out *= self.gain
-        np.clip(out, -1.0, 1.0, out=out)
+        soft_limit(out)
         self.samples_played += n
         return out
 

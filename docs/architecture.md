@@ -2,14 +2,15 @@
 
 The code is split by machine. `numsid/c64/` holds the C64: the 6502, the
 machine around it, the SID and the SID player. `numsid/amiga/` holds the
-Amiga: the MOD loader, the ProTracker replayer, Paula and the MOD player.
+Amiga: the MOD and MED loaders, PowerPacker decrunching, the ProTracker and
+MED replayers, Paula and the module player.
 What both share sits in `numsid/` itself: the `Player` base class, format
 detection (`tunes.py`), resampling, audio output, the visualiser and video
 recording.
 
 * [C64 SID playback](c64.md): the 6502, the machine around it, and the SID.
-* [Amiga MOD playback](amiga.md): the MOD loader, the ProTracker replayer
-  and Paula.
+* [Amiga module playback](amiga.md): the MOD and MED loaders, the
+  ProTracker and MED replayers, and Paula.
 * [Testing](testing.md): how the emulation is checked.
 
 ## Live playback
@@ -28,7 +29,7 @@ fades out over the restart (Commando's main theme loops after 3:55.6). A
 jingle that simply stops is recorded until its last note has died away. For a
 MOD the replayer itself works out the length: the song is over when it
 returns to a row it has already played (pattern loops aside), or when it hits
-`F00`.
+`F00` (`FFE` in a MED song).
 
 ## Performance
 

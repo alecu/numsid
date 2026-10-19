@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
-from .amiga import modfile, protracker
+from .amiga import med, medfile, modfile, powerpacker, protracker
 from .amiga.player import ModPlayer
 from .c64 import psid
 from .c64.player import SIDPlayer, sid_song_length
@@ -17,10 +18,23 @@ class TuneError(ValueError):
 
 
 def load_tune(path: str | Path):
-    """A PSIDFile, a ModFile or a MidiFile, by the file's contents."""
+    """A PSIDFile, a ModFile (or MedFile) or a MidiFile, by the file's
+    contents.  PowerPacked files are decrunched first."""
     blob = Path(path).read_bytes()
+    if powerpacker.is_crunched(blob):
+        try:
+            blob = powerpacker.decrunch(blob)
+        except powerpacker.PowerPackerError as exc:
+            raise TuneError(f"{path}: {exc}") from None
     if blob[:4] in (b"PSID", b"RSID"):
         return psid.parse(blob)
+    if medfile.is_med(blob):
+        try:
+            return medfile.parse(blob, str(path))
+        except (modfile.ModFileError, struct.error) as exc:
+            raise TuneError(f"{path}: {exc}") from None
+    if blob[:4] == b"MED\x04":
+        raise TuneError(f"{path}: a song in the old MED 2/3 format, which isn't supported")
     if blob[:4] == b"MThd" or (blob[:4] == b"RIFF" and blob[8:12] == b"RMID"):
         try:
             return smf.parse(blob, str(path))
@@ -29,14 +43,14 @@ def load_tune(path: str | Path):
     try:
         return modfile.parse(blob, str(path))
     except modfile.NotAModError:
-        raise TuneError(f"{path}: not a PSID/RSID file, a MOD or a MIDI file") from None
+        raise TuneError(f"{path}: not a PSID/RSID file, a MOD, a MED song or a MIDI file") from None
     except modfile.ModFileError as exc:
         raise TuneError(f"{path}: {exc}") from None
 
 
 def open_player(tune, song: int | None = None, **kwargs) -> "Player":
     """A player for a tune or a path.  `song` is the subtune of a SID file,
-    or the starting order position of a MOD."""
+    or the starting order position of a MOD or MED song."""
     if isinstance(tune, (str, Path)):
         tune = load_tune(tune)
     separation = kwargs.pop("separation", None)        # MOD only
@@ -65,6 +79,8 @@ def song_length(tune, song: int | None = None, max_seconds: float = 600.0, **kwa
     position, and the replayer's own bookkeeping gives an exact answer."""
     if isinstance(tune, smf.MidiFile):
         return tune.length + 2.0, "end"          # let the last notes ring
+    if isinstance(tune, medfile.MedFile):
+        return med.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     if isinstance(tune, modfile.ModFile):
         return protracker.song_length(tune, song or 0, max_seconds=max(max_seconds, 3600.0))
     return sid_song_length(tune, song or tune.start_song, max_seconds, **kwargs)

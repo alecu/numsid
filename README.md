@@ -3,8 +3,9 @@
 A Commodore 64 SID, Amiga MOD and MIDI (on a Roland MT-32) music player written in Python. For SID
 tunes the MOS 6502 CPU runs the tune's own player code, and the MOS 6581/8580
 SID chip is synthesised cycle by cycle with numpy. For Amiga tracker modules
-a ProTracker 2.3D replay routine drives Paula, the Amiga's sound chip, which
-is emulated with exact sample timing and the A500/A1200 output filters. No
+a ProTracker 2.3D replay routine, or a MED/OctaMED one, drives Paula, the
+Amiga's sound chip, which is emulated with exact sample timing and the
+A500/A1200 output filters. No
 emulation or tracker libraries are used, only `numpy` for the maths and
 `pyglet` for audio output and the window.
 
@@ -108,8 +109,10 @@ muted](docs/screenshot-song2.png)
 The file type is detected from the contents. ProTracker, NoiseTracker and
 StarTrekker modules (`M.K.`, `FLT4` and the like) play, as do the original
 15-sample SoundTracker ones and PC-era multichannel MODs (`6CHN`, `8CHN`,
-`xxCH`). Output is stereo with the Amiga's hard left/right panning: channels
-1 and 4 left, 2 and 3 right. In the window `←/→` step through the order list,
+`xxCH`). So do MED and OctaMED songs (`MMD0` to `MMD3`, 4 to 8 tracks or
+more), synthetic and hybrid instruments included, and files crunched with
+PowerPacker (`PP20`), which are unpacked first. Output is stereo with the
+Amiga's hard left/right panning: channels 1 and 4 left, 2 and 3 right. In the window `←/→` step through the order list,
 `1`-`4` mute channels, `F` makes the LED filter ignore the song's `E0x`
 commands, and `M` switches between the A500 and A1200 output stages. The
 readouts show each channel's note, period and sample rate, sample, volume and
@@ -168,18 +171,22 @@ H.264 + AAC (BT.709), ready for YouTube.
 * SID-file playback uses a stand-in KERNAL and no BASIC/character ROM.
   The game emulator uses the user's real ROMs; its remaining hardware
   limitations are listed in [the emulator guide](docs/emulator.md).
-* MODs play with PAL timing and ProTracker 2.3D semantics only.
+* Amiga modules play with PAL timing only, and MODs with ProTracker 2.3D
+  semantics. MED songs lack MIDI instruments, packed samples and the
+  play-sequence commands of MMD2/MMD3. Other Amiga formats (TFMX and
+  friends) aren't supported.
 * MIDI files play on the MT-32 only; there is no General MIDI synth yet.
 
 [ISSUES.md](ISSUES.md) has the full list of known bugs and missing features,
-with a compatibility table for the HVSC Top 100: all 100 now play, RSID files
-included.
+with a compatibility table for the HVSC Top 100 (all 100 now play, RSID files
+included) and one for well-known Amiga modules (27 of 28 play).
 
 ## How it works
 
 * [Architecture](docs/architecture.md): how the code is laid out, video
   recording, performance.
 * [C64 SID playback](docs/c64.md): the 6502, the machine, the SID chip.
-* [Amiga MOD playback](docs/amiga.md): the ProTracker replayer and Paula.
+* [Amiga module playback](docs/amiga.md): the ProTracker and MED
+  replayers, PowerPacker, and Paula.
 * [MIDI on the MT-32](docs/mt32.md): the ROMs, and the LA32 as measured.
 * [Testing](docs/testing.md): reference models and how accuracy is checked.

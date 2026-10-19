@@ -1,29 +1,32 @@
-"""Amiga tracker modules: the ProTracker replay routine driving Paula."""
+"""Amiga tracker modules: the ProTracker or MED replay routine driving Paula."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from ..player import Player, Readout
-from . import modfile, protracker
+from . import med, medfile, modfile, protracker
 from .paula import Paula
 
 class ModPlayer(Player):
-    """A tracker module, played by the ProTracker replay routine on Paula."""
+    """A tracker module, played by the ProTracker replay routine on Paula,
+    or a MED song by the MED one."""
 
     channels = 2
     voice_label = "CHANNEL"
     info_lines = 3
     models = ("A500", "A1200")
     skip_label = "position"
-    credit = "numsid  ·  ProTracker replayer and Amiga Paula chip emulated in Python + numpy"
 
     def __init__(self, tune: modfile.ModFile | str | Path, position: int = 0, *,
                  sample_rate: int = 44100, model: str | None = None,
                  filter_enabled: bool = True, gain: float = 1.0, scope_rate: int = 0,
                  separation: float = 1.0):
         super().__init__(sample_rate, gain, scope_rate)
-        self.tune = tune if isinstance(tune, modfile.ModFile) else modfile.load(tune)
+        if not isinstance(tune, modfile.ModFile):
+            from ..tunes import load_tune               # (PowerPacked, MOD or MED)
+            tune = load_tune(tune)
+        self.tune = tune
         self.model = model or "A500"
         self.separation = separation
         self.paula = self._paula(filter_enabled)
@@ -37,6 +40,15 @@ class ModPlayer(Player):
     @property
     def chip(self) -> Paula:
         return self.paula
+
+    @property
+    def is_med(self) -> bool:
+        return isinstance(self.tune, medfile.MedFile)
+
+    @property
+    def credit(self) -> str:
+        engine = "MED" if self.is_med else "ProTracker"
+        return f"numsid  ·  {engine} replayer and Amiga Paula chip emulated in Python + numpy"
 
     @property
     def subtitle(self) -> str:
@@ -54,7 +66,9 @@ class ModPlayer(Player):
         """(Re)start at an order position, with the speed and tempo the song
         has there."""
         self.paula.reset()
-        if position:
+        if self.is_med:
+            self.replayer = med.seek(self.tune, self.paula, position)
+        elif position:
             self.replayer = protracker.seek(self.tune, self.paula, position)
         else:
             self.replayer = protracker.ProTracker(self.tune, self.paula)
@@ -76,7 +90,8 @@ class ModPlayer(Player):
         t = pt.time
         paula.advance(t)
         pt.tick()
-        voices = tuple((hw.per, hw.vol if hw.dma else 0, v.sample, v.cmd & 0xFFF)
+        mask = 0xFFFF if self.is_med else 0xFFF       # PT keeps the instrument above the effect
+        voices = tuple((hw.per, hw.vol if hw.dma else 0, v.sample, v.cmd & mask)
                        for hw, v in zip(paula.voices, pt.voices))
         self.frames.append((t, (pt.now, pt.speed, pt.bpm, pt.led, pt.playing, voices)))
 
@@ -99,7 +114,8 @@ class ModPlayer(Player):
                           f"{sample:02d} {s.name if s else '':.22}" if sample else "--",
                           f"vol {volume:2d}    fx {f'{cmd:03X}' if cmd else '---'}"])
             levels.append(volume / 64)
-        chip = [f"POS {pos:02d}/{len(orders):02d}  PATTERN {orders[pos]:02d}  ROW {row:02d}",
+        block = "BLOCK" if self.is_med else "PATTERN"
+        chip = [f"POS {pos:02d}/{len(orders):02d}  {block} {orders[pos]:02d}  ROW {row:02d}",
                 f"SPEED {speed}  BPM {bpm}  LED {'on' if led else 'off'}"
                 + ("" if playing else "  STOPPED")]
         return Readout(f"pos {pos:02d}/{len(orders):02d}  row {row:02d}", lines, levels, chip)
